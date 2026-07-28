@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+
+# Resolve symlinks to find real source directory of this script
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+
+AI_CONFIG_DIR="${AI_CONFIG_DIR:-$HOME/.config/ai}"
+
+# Load libraries
+source "$SCRIPT_DIR/lib/utils.sh"
+source "$SCRIPT_DIR/lib/provider.sh"
+source "$SCRIPT_DIR/lib/env.sh"
+source "$SCRIPT_DIR/lib/cli.sh"
+source "$SCRIPT_DIR/lib/doctor.sh"
+
+show_help() {
+    cat << EOF
+${BOLD}AI CLI Helper${NC} - One Command. Every AI CLI.
+
+${BOLD}USAGE:${NC}
+  ai <command> [args]
+  ai <cli_name> [args]
+
+${BOLD}PROVIDER COMMANDS:${NC}
+  ai provider use <name>     Switch active provider
+  ai provider current        Show active provider
+  ai provider list           List available providers
+  ai provider add [name]     Add a new provider configuration
+  ai provider remove <name>  Remove a provider configuration
+
+${BOLD}ENVIRONMENT COMMANDS:${NC}
+  ai env                     Display current environment variables
+  ai env export              Export current environment variables
+  ai env reset               Reset environment settings
+
+${BOLD}CLI COMMANDS:${NC}
+  ai codex [args...]         Launch Codex CLI
+  ai claude [args...]        Launch Claude Code CLI
+  ai gemini [args...]        Launch Gemini CLI
+  ai aider [args...]         Launch Aider CLI
+  ai qwen [args...]          Launch Qwen CLI
+  ai openai [args...]        Launch OpenAI CLI
+
+${BOLD}SYSTEM COMMANDS:${NC}
+  ai doctor                  Run diagnostic check
+  ai update                  Pull latest git updates
+  ai init                    Initialize configuration directory structure
+  ai help                    Show this help message
+
+EOF
+}
+
+init_config_dir() {
+    info "Initializing configuration at $AI_CONFIG_DIR ..."
+    mkdir -p "$AI_CONFIG_DIR"/{providers,secrets,cli,lib,templates,bin}
+
+    # Copy files from repository if running from source repo
+    if [ "$SCRIPT_DIR" != "$AI_CONFIG_DIR" ]; then
+        cp -r "$SCRIPT_DIR/providers/"* "$AI_CONFIG_DIR/providers/" 2>/dev/null || true
+        cp -r "$SCRIPT_DIR/cli/"* "$AI_CONFIG_DIR/cli/" 2>/dev/null || true
+        cp -r "$SCRIPT_DIR/lib/"* "$AI_CONFIG_DIR/lib/" 2>/dev/null || true
+        cp -r "$SCRIPT_DIR/templates/"* "$AI_CONFIG_DIR/templates/" 2>/dev/null || true
+        cp "$SCRIPT_DIR/init-ai.sh" "$AI_CONFIG_DIR/" 2>/dev/null || true
+        cp "$SCRIPT_DIR/ai" "$AI_CONFIG_DIR/bin/ai" 2>/dev/null || true
+        chmod +x "$AI_CONFIG_DIR/bin/ai"
+    fi
+
+    # Create secrets if missing
+    for p_file in "$AI_CONFIG_DIR/providers/"*.sh; do
+        [ -e "$p_file" ] || continue
+        local p_name
+        p_name=$(basename "$p_file" .sh)
+        local s_file="$AI_CONFIG_DIR/secrets/${p_name}.sh"
+        if [ ! -f "$s_file" ]; then
+            cp "$AI_CONFIG_DIR/templates/secret.sh.template" "$s_file"
+            chmod 600 "$s_file"
+        fi
+    done
+
+    # Default provider
+    if [ ! -f "$AI_CONFIG_DIR/current_provider" ]; then
+        echo "openai" > "$AI_CONFIG_DIR/current_provider"
+    fi
+
+    # Add to ~/.bashrc or ~/.zshrc if needed
+    local SHELL_RC=""
+    if [ -f "$HOME/.bashrc" ]; then
+        SHELL_RC="$HOME/.bashrc"
+    elif [ -f "$HOME/.zshrc" ]; then
+        SHELL_RC="$HOME/.zshrc"
+    fi
+
+    if [ -n "$SHELL_RC" ]; then
+        if ! grep -q "init-ai.sh" "$SHELL_RC"; then
+            echo "" >> "$SHELL_RC"
+            echo "# AI CLI Helper Initialization" >> "$SHELL_RC"
+            echo "[ -f \"$AI_CONFIG_DIR/init-ai.sh\" ] && source \"$AI_CONFIG_DIR/init-ai.sh\"" >> "$SHELL_RC"
+            success "Added init script entry to $SHELL_RC"
+        else
+            info "Init script already sourced in $SHELL_RC"
+        fi
+    fi
+
+    success "Initialization complete! Run 'source $SHELL_RC' or restart your terminal."
+}
+
+update_repo() {
+    info "Updating AI CLI Helper..."
+    if [ -d "$SCRIPT_DIR/.git" ]; then
+        (cd "$SCRIPT_DIR" && git pull)
+        init_config_dir
+        success "Update completed successfully."
+    else
+        warn "Script directory is not a git repository. Cannot run git pull."
+    fi
+}
+
+main() {
+    local cmd="$1"
+    shift || true
+
+    case "$cmd" in
+        provider)
+            local subcmd="$1"
+            shift || true
+            case "$subcmd" in
+                use) set_current_provider "$1" ;;
+                current) get_current_provider ;;
+                list) list_providers ;;
+                add) add_provider "$1" ;;
+                remove|rm) remove_provider "$1" ;;
+                *) error "Unknown provider command: $subcmd"; show_help ;;
+            esac
+            ;;
+        env)
+            local subcmd="$1"
+            shift || true
+            case "$subcmd" in
+                ""|show) show_env ;;
+                export) export_env ;;
+                reset) set_current_provider "openai" ;;
+                *) error "Unknown env command: $subcmd" ;;
+            esac
+            ;;
+        doctor)
+            run_doctor
+            ;;
+        update)
+            update_repo
+            ;;
+        init)
+            init_config_dir
+            ;;
+        help|--help|-h|"")
+            show_help
+            ;;
+        *)
+            # Check if cmd corresponds to a CLI wrapper script in cli/
+            if [ -f "$AI_CONFIG_DIR/cli/${cmd}.sh" ] || [ -f "$SCRIPT_DIR/cli/${cmd}.sh" ]; then
+                run_cli "$cmd" "$@"
+            else
+                error "Unknown command or CLI: $cmd"
+                show_help
+                exit 1
+            fi
+            ;;
+    esac
+}
+
+main "$@"
