@@ -25,6 +25,7 @@ load_environment() {
     unset OPENAI_API_KEY ANTHROPIC_API_KEY GEMINI_API_KEY
     unset OPENAI_BASE_URL ANTHROPIC_BASE_URL GEMINI_BASE_URL
     unset OPENAI_MODEL ANTHROPIC_MODEL GEMINI_MODEL
+    unset AI_HOME_PROFILE
 
     source "$provider_file"
 
@@ -39,9 +40,23 @@ load_environment() {
 
 setup_cli_home() {
     local alias_name="$1"
-    local provider="${AI_ACTIVE_PROVIDER:-default}"
     
-    local cli_home="$HOME/.local/share/ai/${alias_name}/${provider}"
+    # 决定使用哪个 HOME profile 名称：
+    # 1. 如果在 provider 配置文件中定义了 AI_HOME_PROFILE，则优先使用该 profile（实现多 Key 共享 HOME）
+    # 2. 否则，默认使用各自别名/Provider 独立的 HOME 空间
+    local home_profile="${AI_HOME_PROFILE:-$alias_name}"
+
+    # 获取底层真实的 CLI 名称（如 codex, claude 等）
+    local base_cli=""
+    for base in codex claude gemini aider qwen openai; do
+        if [[ "$alias_name" == "${base}"* ]]; then
+            base_cli="$base"
+            break
+        fi
+    done
+    [ -z "$base_cli" ] && base_cli="$alias_name"
+
+    local cli_home="$HOME/.local/share/ai/${base_cli}/${home_profile}"
     mkdir -p "$cli_home"
     export HOME="$cli_home"
 }
@@ -50,6 +65,7 @@ show_env() {
     local target="${1:-$(get_current_provider)}"
     load_environment "$target"
     echo -e "${BOLD}Target/Provider:${NC} $AI_ACTIVE_PROVIDER"
+    echo -e "${BOLD}HOME Profile:${NC}     ${AI_HOME_PROFILE:-default ($target)}"
     echo -e "${BOLD}Environment Variables:${NC}"
     echo "  OPENAI_BASE_URL:  ${OPENAI_BASE_URL:-(not set)}"
     echo "  OPENAI_MODEL:     ${OPENAI_MODEL:-(not set)}"
