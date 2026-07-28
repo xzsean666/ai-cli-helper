@@ -2,12 +2,14 @@
 
 # Launcher wrapper for OpenAI / Codex CLI
 if command -v codex >/dev/null 2>&1; then
-    # Pass --oss to force standard OpenAI-compatible REST API instead of Codex proprietary WebSocket/responses endpoint
+    OPTS=()
     if [ -n "$OPENAI_BASE_URL" ]; then
-        exec codex --oss --local-provider custom -c "providers.custom.base_url=\"$OPENAI_BASE_URL\"" -c "providers.custom.api_key=\"$OPENAI_API_KEY\"" "$@"
-    else
-        exec codex "$@"
+        OPTS+=(-c "openai_base_url=\"$OPENAI_BASE_URL\"")
     fi
+    if [ -n "$OPENAI_MODEL" ]; then
+        OPTS+=(-c "model=\"$OPENAI_MODEL\"")
+    fi
+    exec codex "${OPTS[@]}" "$@"
 elif command -v openai >/dev/null 2>&1; then
     exec openai "$@"
 else
