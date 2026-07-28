@@ -2,9 +2,9 @@
 
 # Launcher wrapper for OpenAI / Codex CLI
 if command -v codex >/dev/null 2>&1; then
-    # Inject --config wire_mock / base URL override if OPENAI_BASE_URL is set
+    # Pass --oss to force standard OpenAI-compatible REST API instead of Codex proprietary WebSocket/responses endpoint
     if [ -n "$OPENAI_BASE_URL" ]; then
-        exec codex -c "openai_base_url=\"$OPENAI_BASE_URL\"" "$@"
+        exec codex --oss --local-provider custom -c "providers.custom.base_url=\"$OPENAI_BASE_URL\"" -c "providers.custom.api_key=\"$OPENAI_API_KEY\"" "$@"
     else
         exec codex "$@"
     fi
