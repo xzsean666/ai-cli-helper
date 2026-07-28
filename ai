@@ -24,27 +24,27 @@ ${BOLD}AI CLI Helper${NC} - One Command. Every AI CLI.
 
 ${BOLD}USAGE:${NC}
   ai <command> [args]
-  ai <cli_name> [args]
+  ai <cli_name_or_alias> [args]  (e.g., ai codex, ai codexa, ai claudej)
 
 ${BOLD}PROVIDER COMMANDS:${NC}
-  ai provider use <name>     Switch active provider
-  ai provider current        Show active provider
+  ai provider use <name>     Switch default active provider
+  ai provider current        Show default active provider
   ai provider list           List available providers
   ai provider add [name]     Add a new provider configuration
   ai provider remove <name>  Remove a provider configuration
 
 ${BOLD}ENVIRONMENT COMMANDS:${NC}
-  ai env                     Display current environment variables
-  ai env export              Export current environment variables
-  ai env reset               Reset environment settings
+  ai env [alias]             Display environment variables for provider/alias
+  ai env export [alias]      Export environment variables for provider/alias
+  ai env reset               Reset default active provider to 'openai'
 
-${BOLD}CLI COMMANDS:${NC}
-  ai codex [args...]         Launch Codex CLI
-  ai claude [args...]        Launch Claude Code CLI
-  ai gemini [args...]        Launch Gemini CLI
-  ai aider [args...]         Launch Aider CLI
-  ai qwen [args...]          Launch Qwen CLI
-  ai openai [args...]        Launch OpenAI CLI
+${BOLD}ALIAS ENGINE:${NC}
+  支持直接绑定专属 API/URL！
+  在 ~/.config/ai/providers/ 中建立对应的文件，例如 codexa.sh, claudej.sh。
+  当执行 'ai codexa' 时，系统会自动：
+  1. 匹配底层的 codex CLI
+  2. 优先装载 providers/codexa.sh 与 secrets/codexa.sh
+  3. 创建独立隔离的 HOME 目录 (~/.local/share/ai/codexa/...)
 
 ${BOLD}SYSTEM COMMANDS:${NC}
   ai doctor                  Run diagnostic check
@@ -141,10 +141,10 @@ main() {
             local subcmd="$1"
             shift || true
             case "$subcmd" in
-                ""|show) show_env ;;
-                export) export_env ;;
+                ""|show) show_env "$1" ;;
+                export) export_env "$1" ;;
                 reset) set_current_provider "openai" ;;
-                *) error "Unknown env command: $subcmd" ;;
+                *) show_env "$subcmd" ;;
             esac
             ;;
         doctor)
@@ -160,14 +160,8 @@ main() {
             show_help
             ;;
         *)
-            # Check if cmd corresponds to a CLI wrapper script in cli/
-            if [ -f "$AI_CONFIG_DIR/cli/${cmd}.sh" ] || [ -f "$SCRIPT_DIR/cli/${cmd}.sh" ]; then
-                run_cli "$cmd" "$@"
-            else
-                error "Unknown command or CLI: $cmd"
-                show_help
-                exit 1
-            fi
+            # 动态判断命令：无论是精准匹配 (codex) 还是别名匹配 (codexa, claudej)
+            run_cli "$cmd" "$@"
             ;;
     esac
 }
