@@ -11,12 +11,22 @@ SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
 
 AI_CONFIG_DIR="${AI_CONFIG_DIR:-$HOME/.config/ai}"
 
+# Determine root library location
+if [ -d "$SCRIPT_DIR/lib" ]; then
+    LIB_DIR="$SCRIPT_DIR/lib"
+elif [ -d "$AI_CONFIG_DIR/lib" ]; then
+    LIB_DIR="$AI_CONFIG_DIR/lib"
+else
+    echo "[ERROR] Cannot locate lib/ directory for AI CLI Helper."
+    exit 1
+fi
+
 # Load libraries
-source "$SCRIPT_DIR/lib/utils.sh"
-source "$SCRIPT_DIR/lib/provider.sh"
-source "$SCRIPT_DIR/lib/env.sh"
-source "$SCRIPT_DIR/lib/cli.sh"
-source "$SCRIPT_DIR/lib/doctor.sh"
+source "$LIB_DIR/utils.sh"
+source "$LIB_DIR/provider.sh"
+source "$LIB_DIR/env.sh"
+source "$LIB_DIR/cli.sh"
+source "$LIB_DIR/doctor.sh"
 
 show_help() {
     cat << EOF
@@ -160,7 +170,6 @@ main() {
             show_help
             ;;
         *)
-            # 动态判断命令：无论是精准匹配 (codex) 还是别名匹配 (codexa, claudej)
             run_cli "$cmd" "$@"
             ;;
     esac
