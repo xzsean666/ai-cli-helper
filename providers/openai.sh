@@ -1,11 +1,11 @@
-# Default OpenAI Provider Configuration
+# OpenAI Provider Configuration (Default Model: terra)
 export AI_PROVIDER_NAME="openai"
 
-export OPENAI_BASE_URL="https://api.openai.com/v1"
-export OPENAI_MODEL="gpt-4o"
+export OPENAI_BASE_URL="https://ai.kdysite.cloud/v1"
+export OPENAI_MODEL="terra"
 
-export ANTHROPIC_BASE_URL="https://api.anthropic.com"
-export ANTHROPIC_MODEL="claude-3-5-sonnet-20241022"
+export ANTHROPIC_BASE_URL="https://ai.kdysite.cloud"
+export ANTHROPIC_MODEL="terra"
 
-export GEMINI_BASE_URL="https://generativelanguage.googleapis.com"
-export GEMINI_MODEL="gemini-2.5-flash"
+export GEMINI_BASE_URL="https://ai.kdysite.cloud"
+export GEMINI_MODEL="terra"
