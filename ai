@@ -14,6 +14,9 @@ AI_CONFIG_DIR="${AI_CONFIG_DIR:-$HOME/.config/ai}"
 # Determine root library location
 if [ -d "$SCRIPT_DIR/lib" ]; then
     LIB_DIR="$SCRIPT_DIR/lib"
+elif [ -d "$SCRIPT_DIR/../lib" ]; then
+    # Installed layout: bin/ai with lib/ alongside bin/.
+    LIB_DIR="$(cd "$SCRIPT_DIR/../lib" >/dev/null 2>&1 && pwd)"
 elif [ -d "$AI_CONFIG_DIR/lib" ]; then
     LIB_DIR="$AI_CONFIG_DIR/lib"
 else

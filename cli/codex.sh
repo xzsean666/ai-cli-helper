@@ -2,6 +2,16 @@
 
 # Launcher wrapper for OpenAI / Codex CLI
 if command -v codex >/dev/null 2>&1; then
+    # Codex reads API keys from CODEX_HOME/.codex/auth.json. Keep this file
+    # aligned with the selected provider while allowing providers to share HOME.
+    if [ -n "$OPENAI_API_KEY" ]; then
+        export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+        codex_home="$CODEX_HOME"
+        mkdir -p "$codex_home"
+        umask 077
+        printf '{"auth_mode":"apikey","OPENAI_API_KEY":"%s"}\n' "$OPENAI_API_KEY" > "$codex_home/auth.json"
+    fi
+
     OPTS=()
     
     # Add -c openai_base_url if OPENAI_BASE_URL is set
