@@ -14,6 +14,9 @@ AI_CONFIG_DIR="${AI_CONFIG_DIR:-$HOME/.config/ai}"
 # Determine root library location
 if [ -d "$SCRIPT_DIR/lib" ]; then
     LIB_DIR="$SCRIPT_DIR/lib"
+elif [ -d "$SCRIPT_DIR/../lib" ]; then
+    # Installed layout: bin/ai with lib/ alongside bin/.
+    LIB_DIR="$(cd "$SCRIPT_DIR/../lib" >/dev/null 2>&1 && pwd)"
 elif [ -d "$AI_CONFIG_DIR/lib" ]; then
     LIB_DIR="$AI_CONFIG_DIR/lib"
 else
@@ -75,7 +78,10 @@ init_config_dir() {
         cp -r "$SCRIPT_DIR/cli/"* "$AI_CONFIG_DIR/cli/" 2>/dev/null || true
         cp -r "$SCRIPT_DIR/lib/"* "$AI_CONFIG_DIR/lib/" 2>/dev/null || true
         cp -r "$SCRIPT_DIR/templates/"* "$AI_CONFIG_DIR/templates/" 2>/dev/null || true
-        cp "$SCRIPT_DIR/init-ai.sh" "$AI_CONFIG_DIR/" 2>/dev/null || true
+        if [ -f "$SCRIPT_DIR/ai-init.sh" ]; then
+            cp "$SCRIPT_DIR/ai-init.sh" "$AI_CONFIG_DIR/ai-init.sh" 2>/dev/null || true
+        fi
+        chmod +x "$AI_CONFIG_DIR/ai-init.sh" 2>/dev/null || true
         cp "$SCRIPT_DIR/ai" "$AI_CONFIG_DIR/bin/ai" 2>/dev/null || true
         chmod +x "$AI_CONFIG_DIR/bin/ai"
     fi
@@ -97,19 +103,27 @@ init_config_dir() {
         echo "openai" > "$AI_CONFIG_DIR/current_provider"
     fi
 
-    # Add to ~/.bashrc or ~/.zshrc if needed
+    # Add to ~/.zshrc or ~/.bashrc if needed (macOS defaults to zsh)
     local SHELL_RC=""
-    if [ -f "$HOME/.bashrc" ]; then
+    if [[ "$SHELL" == *"zsh"* ]] || [ -n "$ZSH_VERSION" ]; then
+        SHELL_RC="$HOME/.zshrc"
+    elif [[ "$SHELL" == *"bash"* ]] || [ -n "$BASH_VERSION" ]; then
         SHELL_RC="$HOME/.bashrc"
     elif [ -f "$HOME/.zshrc" ]; then
         SHELL_RC="$HOME/.zshrc"
+    elif [ -f "$HOME/.bashrc" ]; then
+        SHELL_RC="$HOME/.bashrc"
     fi
 
     if [ -n "$SHELL_RC" ]; then
-        if ! grep -q "init-ai.sh" "$SHELL_RC"; then
+        # Clean up old init-ai.sh reference if exists (portable sed)
+        if grep -q "init-ai.sh" "$SHELL_RC" 2>/dev/null; then
+            sed -i.bak '/init-ai\.sh/d' "$SHELL_RC" && rm -f "${SHELL_RC}.bak"
+        fi
+        if ! grep -q "ai-init.sh" "$SHELL_RC" 2>/dev/null; then
             echo "" >> "$SHELL_RC"
             echo "# AI CLI Helper Initialization" >> "$SHELL_RC"
-            echo "[ -f \"$AI_CONFIG_DIR/init-ai.sh\" ] && source \"$AI_CONFIG_DIR/init-ai.sh\"" >> "$SHELL_RC"
+            echo "[ -f \"$AI_CONFIG_DIR/ai-init.sh\" ] && source \"$AI_CONFIG_DIR/ai-init.sh\"" >> "$SHELL_RC"
             success "Added init script entry to $SHELL_RC"
         else
             info "Init script already sourced in $SHELL_RC"
