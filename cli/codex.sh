@@ -9,6 +9,17 @@ if command -v codex >/dev/null 2>&1; then
         OPTS+=(-c "openai_base_url=\"$OPENAI_BASE_URL\"")
     fi
 
+    # Sync OPENAI_API_KEY to auth.json if set
+    if [ -n "$OPENAI_API_KEY" ]; then
+        mkdir -p "$HOME/.codex"
+        cat << EOF > "$HOME/.codex/auth.json"
+{
+  "auth_mode": "apikey",
+  "OPENAI_API_KEY": "$OPENAI_API_KEY"
+}
+EOF
+    fi
+
     # Add -c model if OPENAI_MODEL is set
     if [ -n "$OPENAI_MODEL" ]; then
         OPTS+=(-c "model=\"$OPENAI_MODEL\"")
