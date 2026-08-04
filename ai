@@ -62,6 +62,7 @@ ${BOLD}ALIAS ENGINE:${NC}
 ${BOLD}SYSTEM COMMANDS:${NC}
   ai doctor                  Run diagnostic check
   ai update                  Pull latest git updates
+  ai reset [alias] [profile] Reset HOME profile environment (e.g. ai reset claude, ai reset claudeb)
   ai init                    Initialize configuration directory structure
   ai help                    Show this help message
 
@@ -176,6 +177,9 @@ main() {
             ;;
         update)
             update_repo
+            ;;
+        reset)
+            reset_cli_home "$@"
             ;;
         init)
             init_config_dir

@@ -91,3 +91,34 @@ export_env() {
     echo "export GEMINI_MODEL=\"${GEMINI_MODEL}\""
     echo "export GEMINI_API_KEY=\"${GEMINI_API_KEY}\""
 }
+
+reset_cli_home() {
+    local target="${1:-claude}"
+    local custom_profile="$2"
+
+    if [ -f "$AI_CONFIG_DIR/providers/${target}.sh" ]; then
+        load_environment "$target" 2>/dev/null || true
+    fi
+
+    local home_profile="${custom_profile:-${AI_HOME_PROFILE:-$target}}"
+
+    local base_cli=""
+    for base in codex claude gemini aider qwen openai; do
+        if [[ "$target" == "${base}"* ]]; then
+            base_cli="$base"
+            break
+        fi
+    done
+    [ -z "$base_cli" ] && base_cli="$target"
+
+    local cli_home="$HOME/.local/share/ai/${base_cli}/${home_profile}"
+
+    info "Resetting HOME profile for '${base_cli}' (${home_profile}) ..."
+    if [ -d "$cli_home" ]; then
+        rm -rf "$cli_home"
+        success "Reset complete: Removed $cli_home"
+    else
+        warn "Profile directory does not exist: $cli_home"
+    fi
+}
+
