@@ -2,6 +2,8 @@
 
 # Launcher wrapper for OpenAI / Codex CLI
 if command -v codex >/dev/null 2>&1; then
+    ensure_https_base_url OPENAI_BASE_URL "https://api.openai.com/v1"
+
     # Codex reads API keys from CODEX_HOME/.codex/auth.json. Keep this file
     # aligned with the selected provider while allowing providers to share HOME.
     if [ -n "$OPENAI_API_KEY" ]; then
@@ -14,10 +16,15 @@ if command -v codex >/dev/null 2>&1; then
 
     OPTS=()
     
-    # Add -c openai_base_url if OPENAI_BASE_URL is set
-    if [ -n "$OPENAI_BASE_URL" ]; then
-        OPTS+=(-c "openai_base_url=\"$OPENAI_BASE_URL\"")
-    fi
+    # Use the HTTPS/SSE transport for compatible providers instead of WebSockets.
+    OPTS+=(
+        -c 'model_provider="ai_helper"'
+        -c 'model_providers.ai_helper.name="AI CLI Helper"'
+        -c "model_providers.ai_helper.base_url=\"$OPENAI_BASE_URL\""
+        -c 'model_providers.ai_helper.env_key="OPENAI_API_KEY"'
+        -c 'model_providers.ai_helper.wire_api="responses"'
+        -c 'model_providers.ai_helper.supports_websockets=false'
+    )
 
     # Sync OPENAI_API_KEY to auth.json if set
     if [ -n "$OPENAI_API_KEY" ]; then

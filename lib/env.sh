@@ -2,6 +2,25 @@
 
 AI_CONFIG_DIR="${AI_CONFIG_DIR:-$HOME/.config/ai}"
 
+ensure_https_base_url() {
+    local variable_name="$1"
+    local default_url="$2"
+    local base_url="${!variable_name:-$default_url}"
+
+    case "$base_url" in
+        ws://*)
+            base_url="https://${base_url#ws://}"
+            ;;
+        wss://*)
+            base_url="https://${base_url#wss://}"
+            ;;
+    esac
+
+    printf -v "$variable_name" '%s' "$base_url"
+    export "$variable_name"
+}
+export -f ensure_https_base_url
+
 load_environment() {
     local target="$1"
     local provider=""
@@ -121,4 +140,3 @@ reset_cli_home() {
         warn "Profile directory does not exist: $cli_home"
     fi
 }
-
