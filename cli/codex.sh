@@ -42,6 +42,19 @@ EOF
         OPTS+=(-c "model=\"$OPENAI_MODEL\"")
     fi
 
+    # Add reasoning effort when the provider advertises one.
+    if [ -n "$OPENAI_REASONING_EFFORT" ]; then
+        OPTS+=(-c "model_reasoning_effort=\"$OPENAI_REASONING_EFFORT\"")
+    fi
+
+    # Load local metadata so custom Grok models work with /model and effort selection.
+    if [[ "$OPENAI_MODEL" == grok-* ]]; then
+        grok_catalog="${AI_CONFIG_DIR:-$HOME/.config/ai}/templates/codex-grok-models.json"
+        if [ -f "$grok_catalog" ]; then
+            OPTS+=(-c "model_catalog_json=\"$grok_catalog\"")
+        fi
+    fi
+
     # Default to --yolo for non-interactive / automated ease
     exec codex --yolo "${OPTS[@]}" "$@"
 elif command -v openai >/dev/null 2>&1; then

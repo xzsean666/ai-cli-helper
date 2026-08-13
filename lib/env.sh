@@ -44,6 +44,7 @@ load_environment() {
     unset OPENAI_API_KEY ANTHROPIC_API_KEY GEMINI_API_KEY
     unset OPENAI_BASE_URL ANTHROPIC_BASE_URL GEMINI_BASE_URL
     unset OPENAI_MODEL ANTHROPIC_MODEL GEMINI_MODEL
+    unset OPENAI_REASONING_EFFORT
     unset AI_HOME_PROFILE
 
     source "$provider_file"
@@ -88,6 +89,7 @@ show_env() {
     echo -e "${BOLD}Environment Variables:${NC}"
     echo "  OPENAI_BASE_URL:  ${OPENAI_BASE_URL:-(not set)}"
     echo "  OPENAI_MODEL:     ${OPENAI_MODEL:-(not set)}"
+    echo "  OPENAI_REASONING_EFFORT: ${OPENAI_REASONING_EFFORT:-(not set)}"
     echo "  OPENAI_API_KEY:   ${OPENAI_API_KEY:+"*****"}"
     echo "  ANTHROPIC_BASE_URL:${ANTHROPIC_BASE_URL:-(not set)}"
     echo "  ANTHROPIC_MODEL:  ${ANTHROPIC_MODEL:-(not set)}"
