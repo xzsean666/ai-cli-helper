@@ -45,13 +45,13 @@ load_environment() {
     unset OPENAI_BASE_URL ANTHROPIC_BASE_URL GEMINI_BASE_URL
     unset OPENAI_MODEL ANTHROPIC_MODEL GEMINI_MODEL
     unset OPENAI_REASONING_EFFORT
-    unset AI_HOME_PROFILE
+    unset AI_HOME_PROFILE AI_AUTH_MODE
 
     source "$provider_file"
 
     if [ -f "$secret_file" ]; then
         source "$secret_file"
-    else
+    elif [ "$AI_AUTH_MODE" != "chatgpt" ]; then
         warn "Secret file for '$provider' not found at: $secret_file"
     fi
 
@@ -79,6 +79,13 @@ setup_cli_home() {
     local cli_home="$HOME/.local/share/ai/${base_cli}/${home_profile}"
     mkdir -p "$cli_home"
     export HOME="$cli_home"
+
+    # Keep Codex auth/config state inside the selected profile even when the
+    # caller already exported CODEX_HOME in the parent shell.
+    if [ "$base_cli" = "codex" ]; then
+        export CODEX_HOME="$cli_home/.codex"
+        mkdir -p "$CODEX_HOME"
+    fi
 }
 
 show_env() {

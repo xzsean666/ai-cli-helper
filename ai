@@ -59,6 +59,12 @@ ${BOLD}ALIAS ENGINE:${NC}
   2. 优先装载 providers/codexa.sh 与 secrets/codexa.sh
   3. 创建独立隔离的 HOME 目录 (~/.local/share/ai/codexa/...)
 
+${BOLD}CHATGPT OAUTH EXAMPLE:${NC}
+  codexh 使用独立 profile 保存 ChatGPT OAuth 登录状态：
+  1. ai codexh login
+  2. 在浏览器完成 ChatGPT 登录
+  3. ai codexh
+
 ${BOLD}SYSTEM COMMANDS:${NC}
   ai doctor                  Run diagnostic check
   ai update                  Pull latest git updates
@@ -132,6 +138,7 @@ init_config_dir() {
     fi
 
     success "Initialization complete! Run 'source $SHELL_RC' or restart your terminal."
+    info "ChatGPT OAuth example: ai codexh login && ai codexh"
 }
 
 update_repo() {

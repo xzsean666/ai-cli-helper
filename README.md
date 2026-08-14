@@ -52,6 +52,19 @@
    ai gemini             # 启动 Gemini
    ```
 
+### ChatGPT OAuth 登录
+
+初始化后可以使用内置的 `codexh` 示例，通过浏览器登录 ChatGPT。它使用独立的
+`chatgpt-oauth` profile，不会覆盖 API key provider 的登录状态：
+
+```bash
+ai codexh login       # 打开浏览器完成 ChatGPT OAuth 登录
+ai codexh              # 使用 ChatGPT OAuth 启动 Codex
+```
+
+官方 Codex CLI 支持 `codex login` 的 ChatGPT 登录方式；OAuth 模式不需要配置
+`OPENAI_BASE_URL` 或 `OPENAI_API_KEY`。
+
 ---
 
 ## 🛠️ 命令说明
@@ -64,6 +77,7 @@
 
 ### CLI 启动
 - `ai codex`
+- `ai codexh` (ChatGPT OAuth)
 - `ai claude`
 - `ai gemini`
 - `ai aider`

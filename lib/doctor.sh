@@ -17,15 +17,19 @@ run_doctor() {
     fi
 
     local secret_file="$AI_CONFIG_DIR/secrets/${provider}.sh"
-    if [ -f "$secret_file" ]; then
+    load_environment "$provider"
+
+    if [ "$AI_AUTH_MODE" = "chatgpt" ]; then
+        success "[✓] ChatGPT OAuth provider configured"
+    elif [ -f "$secret_file" ]; then
         success "[✓] Secret file exists: $secret_file"
     else
         warn "[!] Secret file missing: $secret_file (You might need to create it)"
     fi
 
-    load_environment
-
-    if [ -n "$OPENAI_API_KEY" ] || [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$GEMINI_API_KEY" ]; then
+    if [ "$AI_AUTH_MODE" = "chatgpt" ]; then
+        info "ChatGPT OAuth credentials are managed by Codex (run: ai codexh login)"
+    elif [ -n "$OPENAI_API_KEY" ] || [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$GEMINI_API_KEY" ]; then
         success "[✓] API key detected in environment"
     else
         warn "[!] No API key configured for current provider"
