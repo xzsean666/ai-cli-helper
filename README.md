@@ -102,6 +102,8 @@ export AI_HOME_PROFILE="shared-team"
 - `ai agy` (Google Antigravity CLI)
 - `ai agya` (Google OAuth 账号 A)
 - `ai agyb` (Google OAuth 账号 B)
+- `ai agyc` (Google OAuth 账号 C)
+- `ai agyd` (Google OAuth 账号 D)
 - `ai codex`
 - `ai codexh` (ChatGPT OAuth)
 - `ai claude`
