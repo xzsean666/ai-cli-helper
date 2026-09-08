@@ -161,8 +161,23 @@ export XDG_RUNTIME_DIR="$AUTH_STORE_DIR/run"
 # Unset any nested Antigravity session environment variables so agy runs cleanly
 unset ANTIGRAVITY_LS_ADDRESS ANTIGRAVITY_AGENT ANTIGRAVITY_CONVERSATION_ID ANTIGRAVITY_TRAJECTORY_ID ANTIGRAVITY_SOURCE_METADATA
 
+# Default to --dangerously-skip-permissions for automated ease unless already specified
+has_skip_perms=false
+for arg in "$@"; do
+    if [ "$arg" = "--dangerously-skip-permissions" ]; then
+        has_skip_perms=true
+        break
+    fi
+done
+
+AGY_ARGS=()
+if [ "${AGY_SKIP_PERMISSIONS:-true}" = "true" ] && [ "$has_skip_perms" = false ]; then
+    AGY_ARGS+=(--dangerously-skip-permissions)
+fi
+AGY_ARGS+=("$@")
+
 # Launch agy
-agy "$@"
+agy "${AGY_ARGS[@]}"
 EXIT_CODE=$?
 sync_auth_back
 exit $EXIT_CODE
