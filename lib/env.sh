@@ -113,11 +113,18 @@ show_env() {
 
     if [ "$AI_AUTH_MODE" = "google-oauth" ]; then
         local auth_dir="$orig_home/.local/share/ai/agy/auth/${target}"
-        local account_file="$auth_dir/google_accounts.json"
-        if [ -f "$auth_dir/oauth_creds.json" ] && [ -f "$account_file" ]; then
-            local email
-            email=$(grep -o '"active": *"[^"]*"' "$account_file" 2>/dev/null | cut -d'"' -f4)
-            echo -e "${BOLD}Google Account:${NC}  ${email:-logged-in}"
+        local token_file="$auth_dir/antigravity-oauth-token"
+        local email_file="$auth_dir/email.txt"
+        local email=""
+        if [ -s "$email_file" ]; then
+            email="$(cat "$email_file" 2>/dev/null)"
+        fi
+        if [ -s "$token_file" ]; then
+            if [ -n "$email" ]; then
+                echo -e "${BOLD}Google Account:${NC}  $email"
+            else
+                echo -e "${BOLD}Google Account:${NC}  (authenticated)"
+            fi
         else
             echo -e "${BOLD}Google Account:${NC}  (not logged in - run: ai $target login)"
         fi

@@ -34,11 +34,20 @@ run_doctor() {
     elif [ "$AI_AUTH_MODE" = "google-oauth" ]; then
         local orig_home="${AI_ORIGINAL_HOME:-$HOME}"
         local auth_dir="$orig_home/.local/share/ai/agy/auth/${provider}"
-        local account_file="$auth_dir/google_accounts.json"
-        if [ -f "$auth_dir/oauth_creds.json" ] && [ -f "$account_file" ]; then
-            local email
-            email=$(grep -o '"active": *"[^"]*"' "$account_file" 2>/dev/null | cut -d'"' -f4)
-            success "[✓] Google OAuth account logged in: ${email:-active}"
+        local token_file="$auth_dir/antigravity-oauth-token"
+        local email_file="$auth_dir/email.txt"
+        local email=""
+        if [ -s "$email_file" ]; then
+            email="$(cat "$email_file" 2>/dev/null)"
+        fi
+        if [ -s "$token_file" ]; then
+            if [ -n "$email" ]; then
+                success "[✓] Google OAuth account logged in: $email"
+            else
+                success "[✓] Google OAuth account logged in for '$provider'"
+            fi
+        elif [ -f "$auth_dir/oauth_creds.json" ]; then
+            success "[✓] Google OAuth credentials found for '$provider'"
         else
             warn "[!] Google OAuth not logged in yet for '$provider' (run: ai $provider login)"
         fi
