@@ -11,6 +11,7 @@ ORIG_HOME="${AI_ORIGINAL_HOME:-$HOME}"
 AUTH_STORE_DIR="$ORIG_HOME/.local/share/ai/agy/auth/$TARGET_ALIAS"
 
 mkdir -p "$AUTH_STORE_DIR"
+mkdir -p "$AUTH_STORE_DIR/run"
 mkdir -p "$HOME/.gemini"
 
 # Helper subcommands for OAuth credential management
@@ -44,17 +45,6 @@ case "$1" in
         rm -f "$HOME/.gemini/oauth_creds.json" "$HOME/.gemini/google_accounts.json"
         shift
         ;;
-    import|import-default)
-        if [ -f "$ORIG_HOME/.gemini/oauth_creds.json" ]; then
-            cp -f "$ORIG_HOME/.gemini/oauth_creds.json" "$AUTH_STORE_DIR/oauth_creds.json"
-            [ -f "$ORIG_HOME/.gemini/google_accounts.json" ] && cp -f "$ORIG_HOME/.gemini/google_accounts.json" "$AUTH_STORE_DIR/google_accounts.json"
-            echo "[SUCCESS] Imported default ~/.gemini credentials into alias '$TARGET_ALIAS'."
-            exit 0
-        else
-            echo "[ERROR] No credentials found in $ORIG_HOME/.gemini to import."
-            exit 1
-        fi
-        ;;
 esac
 
 # Pre-execution: inject saved credentials for THIS alias
@@ -83,6 +73,11 @@ sync_auth_back() {
     fi
 }
 trap sync_auth_back EXIT INT TERM HUP
+
+# 关键：完全隔离系统级 DBus / Keyring，强制 agy 使用当前 profile/alias 的专属文件存储，
+# 避免 Linux 桌面环境自动读取或覆盖全局唯一的 GNOME Keyring 导致串号。
+export DBUS_SESSION_BUS_ADDRESS="disabled"
+export XDG_RUNTIME_DIR="$AUTH_STORE_DIR/run"
 
 # Unset any nested Antigravity session environment variables so agy runs cleanly
 unset ANTIGRAVITY_LS_ADDRESS ANTIGRAVITY_AGENT ANTIGRAVITY_CONVERSATION_ID ANTIGRAVITY_TRAJECTORY_ID ANTIGRAVITY_SOURCE_METADATA

@@ -70,7 +70,7 @@ ${BOLD}GOOGLE ANTIGRAVITY (AGY) OAUTH:${NC}
      ai agya whoami          # 查看当前绑定的 Google 账号
      ai agya login           # 重新发起登录
      ai agya logout          # 退出当前账号并清除凭据
-     ai agya import          # 快速导入 ~/.gemini 中的既有凭据
+     ai reset agya           # 重置该别名的 HOME 与 Auth 状态
 
 ${BOLD}CHATGPT OAUTH EXAMPLE:${NC}
   codexh 使用独立 profile 保存 ChatGPT OAuth 登录状态：

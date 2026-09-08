@@ -85,7 +85,6 @@ export AI_HOME_PROFILE="shared-team"
 - `ai agya whoami` : 查看 `agya` 当前绑定的 Google 账号邮箱与 HOME 状态
 - `ai agya login` : 重新发起 Google OAuth 认证
 - `ai agya logout` : 退出登录并清除当前别名的凭据
-- `ai agya import` : 快速导入 `~/.gemini` 中的现有凭据到 `agya`
 - `ai reset agya` : 重置 `agya` 的 HOME 空间及凭据
 
 ---
