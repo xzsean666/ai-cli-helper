@@ -21,6 +21,8 @@ run_doctor() {
 
     if [ "$AI_AUTH_MODE" = "chatgpt" ]; then
         success "[✓] ChatGPT OAuth provider configured"
+    elif [ "$AI_AUTH_MODE" = "google-oauth" ]; then
+        success "[✓] Google OAuth provider configured (agy)"
     elif [ -f "$secret_file" ]; then
         success "[✓] Secret file exists: $secret_file"
     else
@@ -29,6 +31,17 @@ run_doctor() {
 
     if [ "$AI_AUTH_MODE" = "chatgpt" ]; then
         info "ChatGPT OAuth credentials are managed by Codex (run: ai codexh login)"
+    elif [ "$AI_AUTH_MODE" = "google-oauth" ]; then
+        local orig_home="${AI_ORIGINAL_HOME:-$HOME}"
+        local auth_dir="$orig_home/.local/share/ai/agy/auth/${provider}"
+        local account_file="$auth_dir/google_accounts.json"
+        if [ -f "$auth_dir/oauth_creds.json" ] && [ -f "$account_file" ]; then
+            local email
+            email=$(grep -o '"active": *"[^"]*"' "$account_file" 2>/dev/null | cut -d'"' -f4)
+            success "[✓] Google OAuth account logged in: ${email:-active}"
+        else
+            warn "[!] Google OAuth not logged in yet for '$provider' (run: ai $provider login)"
+        fi
     elif [ -n "$OPENAI_API_KEY" ] || [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$GEMINI_API_KEY" ]; then
         success "[✓] API key detected in environment"
     else
@@ -36,7 +49,7 @@ run_doctor() {
     fi
 
     info "Checking CLI tools availability in PATH:"
-    for tool in codex claude gemini aider qwen; do
+    for tool in codex claude gemini aider qwen agy; do
         if command -v "$tool" >/dev/null 2>&1; then
             success "  [✓] $tool is installed ($(command -v "$tool"))"
         else

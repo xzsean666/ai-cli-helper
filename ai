@@ -37,7 +37,7 @@ ${BOLD}AI CLI Helper${NC} - One Command. Every AI CLI.
 
 ${BOLD}USAGE:${NC}
   ai <command> [args]
-  ai <cli_name_or_alias> [args]  (e.g., ai codex, ai codexa, ai claudej)
+  ai <cli_name_or_alias> [args]  (e.g., ai codex, ai codexa, ai agy, ai agya, ai agyb)
 
 ${BOLD}PROVIDER COMMANDS:${NC}
   ai provider use <name>     Switch default active provider
@@ -52,12 +52,25 @@ ${BOLD}ENVIRONMENT COMMANDS:${NC}
   ai env reset               Reset default active provider to 'openai'
 
 ${BOLD}ALIAS ENGINE:${NC}
-  支持直接绑定专属 API/URL！
-  在 ~/.config/ai/providers/ 中建立对应的文件，例如 codexa.sh, claudej.sh。
-  当执行 'ai codexa' 时，系统会自动：
-  1. 匹配底层的 codex CLI
-  2. 优先装载 providers/codexa.sh 与 secrets/codexa.sh
-  3. 创建独立隔离的 HOME 目录 (~/.local/share/ai/codexa/...)
+  支持直接绑定专属 API/URL 或多账号配置！
+  在 ~/.config/ai/providers/ 中建立对应的文件，例如 codexa.sh, agya.sh, agyb.sh。
+  当执行 'ai <alias>' 时，系统会自动：
+  1. 匹配底层真实的 CLI（codex, claude, agy, gemini 等）
+  2. 优先装载 providers/<alias>.sh 与 secrets/<alias>.sh
+  3. 创建独立隔离的 HOME 目录 (~/.local/share/ai/<cli>/<profile>/)
+
+${BOLD}GOOGLE ANTIGRAVITY (AGY) OAUTH:${NC}
+  agy 使用 Google OAuth 授权，支持多账号独立登录并共享 HOME Profile：
+  1. 运行 'ai agya' -> 首次提示 Google 授权链接，在浏览器登录账号 A
+  2. 运行 'ai agyb' -> 首次提示 Google 授权链接，在浏览器登录账号 B
+  3. 共享 workspace/history：在 providers/agya.sh 与 providers/agyb.sh 中均配置：
+     export AI_HOME_PROFILE="shared-team"
+     即可共享同一套项目配置与历史，同时账号 A 与账号 B 完全独立隔离！
+  4. 辅助指令：
+     ai agya whoami          # 查看当前绑定的 Google 账号
+     ai agya login           # 重新发起登录
+     ai agya logout          # 退出当前账号并清除凭据
+     ai agya import          # 快速导入 ~/.gemini 中的既有凭据
 
 ${BOLD}CHATGPT OAUTH EXAMPLE:${NC}
   codexh 使用独立 profile 保存 ChatGPT OAuth 登录状态：
@@ -68,7 +81,7 @@ ${BOLD}CHATGPT OAUTH EXAMPLE:${NC}
 ${BOLD}SYSTEM COMMANDS:${NC}
   ai doctor                  Run diagnostic check
   ai update                  Pull latest git updates
-  ai reset [alias] [profile] Reset HOME profile environment (e.g. ai reset claude, ai reset claudeb)
+  ai reset [alias] [profile] Reset HOME profile environment (e.g. ai reset agya, ai reset claude)
   ai init                    Initialize configuration directory structure
   ai help                    Show this help message
 
@@ -89,8 +102,14 @@ init_config_dir() {
             cp "$SCRIPT_DIR/ai-init.sh" "$AI_CONFIG_DIR/ai-init.sh" 2>/dev/null || true
         fi
         chmod +x "$AI_CONFIG_DIR/ai-init.sh" 2>/dev/null || true
+        if [ -f "$SCRIPT_DIR/init-ai.sh" ]; then
+            cp "$SCRIPT_DIR/init-ai.sh" "$AI_CONFIG_DIR/init-ai.sh" 2>/dev/null || true
+            chmod +x "$AI_CONFIG_DIR/init-ai.sh" 2>/dev/null || true
+        fi
         cp "$SCRIPT_DIR/ai" "$AI_CONFIG_DIR/bin/ai" 2>/dev/null || true
         chmod +x "$AI_CONFIG_DIR/bin/ai"
+        chmod +x "$AI_CONFIG_DIR/cli/"*.sh 2>/dev/null || true
+        chmod +x "$AI_CONFIG_DIR/lib/"*.sh 2>/dev/null || true
     fi
 
     # Create secrets if missing
@@ -139,6 +158,7 @@ init_config_dir() {
 
     success "Initialization complete! Run 'source $SHELL_RC' or restart your terminal."
     info "ChatGPT OAuth example: ai codexh login && ai codexh"
+    info "Google Antigravity OAuth example: ai agya && ai agyb"
 }
 
 update_repo() {

@@ -65,6 +65,29 @@ ai codexh              # 使用 ChatGPT OAuth 启动 Codex
 官方 Codex CLI 支持 `codex login` 的 ChatGPT 登录方式；OAuth 模式不需要配置
 `OPENAI_BASE_URL` 或 `OPENAI_API_KEY`。
 
+### Google Antigravity (AGY) OAuth 多账号与共享 HOME 支持
+
+系统原生支持 Google Antigravity CLI (`agy`)，并通过独立 Auth Storage 完美解决 Google OAuth 在多账号切换与团队共享 HOME 时的凭据冲突问题。
+
+#### 1. 多账号独立登录
+- **`ai agya`**：绑定 Google 账号 A。首次运行提示 Google OAuth 授权链接，浏览器复制打开完成登录。
+- **`ai agyb`**：绑定 Google 账号 B。首次运行提示 Google OAuth 授权链接，浏览器登录账号 B 完成认证。
+- 后续调用 `ai agya` 或 `ai agyb` 会自动切换到对应的 Google 账号。
+
+#### 2. 共享 HOME Profile (`shared-team`)
+在 `providers/agya.sh` 与 `providers/agyb.sh` 中均可配置：
+```bash
+export AI_HOME_PROFILE="shared-team"
+```
+此时两者共享同一套项目配置、技能与历史记录 (`~/.local/share/ai/agy/shared-team`)，而各自的 Google OAuth 凭据独立隔离在各自的 Auth Store 中，永不互相覆盖。
+
+#### 3. 辅助命令
+- `ai agya whoami` : 查看 `agya` 当前绑定的 Google 账号邮箱与 HOME 状态
+- `ai agya login` : 重新发起 Google OAuth 认证
+- `ai agya logout` : 退出登录并清除当前别名的凭据
+- `ai agya import` : 快速导入 `~/.gemini` 中的现有凭据到 `agya`
+- `ai reset agya` : 重置 `agya` 的 HOME 空间及凭据
+
 ---
 
 ## 🛠️ 命令说明
@@ -76,6 +99,9 @@ ai codexh              # 使用 ChatGPT OAuth 启动 Codex
 - `ai provider remove <name>` : 删除 Provider 配置
 
 ### CLI 启动
+- `ai agy` (Google Antigravity CLI)
+- `ai agya` (Google OAuth 账号 A)
+- `ai agyb` (Google OAuth 账号 B)
 - `ai codex`
 - `ai codexh` (ChatGPT OAuth)
 - `ai claude`

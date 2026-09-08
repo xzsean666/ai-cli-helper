@@ -12,7 +12,7 @@ run_cli() {
     if [ ! -f "$cli_script" ]; then
         # 2. 尝试模糊匹配底层真实的 CLI 类型（例如 codexa -> codex）
         local matched_cli=""
-        for base in codex claude gemini aider qwen openai; do
+        for base in codex claude gemini aider qwen openai agy; do
             if [[ "$target_cmd" == "${base}"* ]]; then
                 matched_cli="$base"
                 break
@@ -26,7 +26,10 @@ run_cli() {
         fi
     fi
 
-    # 根据命令别名（如 codexa）自动加载对应环境（若存在 providers/codexa.sh 优先加载，否则使用 active provider）
+    # 记录当前调用的具体别名，供底层 CLI wrapper 识别
+    export AI_ACTIVE_ALIAS="$target_cmd"
+
+    # 根据命令别名（如 codexa / agya）自动加载对应环境（若存在 providers/agya.sh 优先加载，否则使用 active provider）
     load_environment "$target_cmd"
 
     # 为该别名创建独立隔离的 HOME

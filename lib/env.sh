@@ -25,12 +25,24 @@ load_environment() {
     local target="$1"
     local provider=""
 
-    # 1. 优先检查是否存在同名的专属 provider 配置，例如 codexa -> providers/codexa.sh
+    # 1. 优先检查是否存在同名的专属 provider 配置，例如 codexa -> providers/codexa.sh, agya -> providers/agya.sh
     if [ -f "$AI_CONFIG_DIR/providers/${target}.sh" ]; then
         provider="$target"
     else
-        # 2. 如果没有专属配置，回退读取全局的 current_provider
-        provider=$(get_current_provider)
+        # 尝试匹配底层 base cli 的默认 provider 配置（例如 agyc -> providers/agy.sh）
+        local matched_base=""
+        for base in agy codex claude gemini aider qwen openai; do
+            if [[ "$target" == "${base}"* ]]; then
+                matched_base="$base"
+                break
+            fi
+        done
+        if [ -n "$matched_base" ] && [ -f "$AI_CONFIG_DIR/providers/${matched_base}.sh" ]; then
+            provider="$matched_base"
+        else
+            # 2. 如果没有专属配置，回退读取全局的 current_provider
+            provider=$(get_current_provider)
+        fi
     fi
 
     local provider_file="$AI_CONFIG_DIR/providers/${provider}.sh"
@@ -51,7 +63,7 @@ load_environment() {
 
     if [ -f "$secret_file" ]; then
         source "$secret_file"
-    elif [ "$AI_AUTH_MODE" != "chatgpt" ]; then
+    elif [ "$AI_AUTH_MODE" != "chatgpt" ] && [ "$AI_AUTH_MODE" != "google-oauth" ]; then
         warn "Secret file for '$provider' not found at: $secret_file"
     fi
 
@@ -62,13 +74,13 @@ setup_cli_home() {
     local alias_name="$1"
     
     # 决定使用哪个 HOME profile 名称：
-    # 1. 如果在 provider 配置文件中定义了 AI_HOME_PROFILE，则优先使用该 profile（实现多 Key 共享 HOME）
+    # 1. 如果在 provider 配置文件中定义了 AI_HOME_PROFILE，则优先使用该 profile（实现多 Key / 多账号共享 HOME）
     # 2. 否则，默认使用各自别名/Provider 独立的 HOME 空间
     local home_profile="${AI_HOME_PROFILE:-$alias_name}"
 
-    # 获取底层真实的 CLI 名称（如 codex, claude 等）
+    # 获取底层真实的 CLI 名称（如 codex, claude, agy 等）
     local base_cli=""
-    for base in codex claude gemini aider qwen openai; do
+    for base in codex claude gemini aider qwen openai agy; do
         if [[ "$alias_name" == "${base}"* ]]; then
             base_cli="$base"
             break
@@ -76,7 +88,10 @@ setup_cli_home() {
     done
     [ -z "$base_cli" ] && base_cli="$alias_name"
 
-    local cli_home="$HOME/.local/share/ai/${base_cli}/${home_profile}"
+    # 保存系统真实的原始 HOME，避免嵌套调用导致路径层叠
+    export AI_ORIGINAL_HOME="${AI_ORIGINAL_HOME:-$HOME}"
+
+    local cli_home="$AI_ORIGINAL_HOME/.local/share/ai/${base_cli}/${home_profile}"
     mkdir -p "$cli_home"
     export HOME="$cli_home"
 
@@ -91,8 +106,23 @@ setup_cli_home() {
 show_env() {
     local target="${1:-$(get_current_provider)}"
     load_environment "$target"
+    local orig_home="${AI_ORIGINAL_HOME:-$HOME}"
     echo -e "${BOLD}Target/Provider:${NC} $AI_ACTIVE_PROVIDER"
-    echo -e "${BOLD}HOME Profile:${NC}     ${AI_HOME_PROFILE:-default ($target)}"
+    echo -e "${BOLD}Auth Mode:${NC}       ${AI_AUTH_MODE:-api-key}"
+    echo -e "${BOLD}HOME Profile:${NC}    ${AI_HOME_PROFILE:-default ($target)}"
+
+    if [ "$AI_AUTH_MODE" = "google-oauth" ]; then
+        local auth_dir="$orig_home/.local/share/ai/agy/auth/${target}"
+        local account_file="$auth_dir/google_accounts.json"
+        if [ -f "$auth_dir/oauth_creds.json" ] && [ -f "$account_file" ]; then
+            local email
+            email=$(grep -o '"active": *"[^"]*"' "$account_file" 2>/dev/null | cut -d'"' -f4)
+            echo -e "${BOLD}Google Account:${NC}  ${email:-logged-in}"
+        else
+            echo -e "${BOLD}Google Account:${NC}  (not logged in - run: ai $target login)"
+        fi
+    fi
+
     echo -e "${BOLD}Environment Variables:${NC}"
     echo "  OPENAI_BASE_URL:  ${OPENAI_BASE_URL:-(not set)}"
     echo "  OPENAI_MODEL:     ${OPENAI_MODEL:-(not set)}"
@@ -131,7 +161,7 @@ reset_cli_home() {
     local home_profile="${custom_profile:-${AI_HOME_PROFILE:-$target}}"
 
     local base_cli=""
-    for base in codex claude gemini aider qwen openai; do
+    for base in codex claude gemini aider qwen openai agy; do
         if [[ "$target" == "${base}"* ]]; then
             base_cli="$base"
             break
@@ -139,7 +169,8 @@ reset_cli_home() {
     done
     [ -z "$base_cli" ] && base_cli="$target"
 
-    local cli_home="$HOME/.local/share/ai/${base_cli}/${home_profile}"
+    local orig_home="${AI_ORIGINAL_HOME:-$HOME}"
+    local cli_home="$orig_home/.local/share/ai/${base_cli}/${home_profile}"
 
     info "Resetting HOME profile for '${base_cli}' (${home_profile}) ..."
     if [ -d "$cli_home" ]; then
@@ -147,5 +178,14 @@ reset_cli_home() {
         success "Reset complete: Removed $cli_home"
     else
         warn "Profile directory does not exist: $cli_home"
+    fi
+
+    if [ "$base_cli" = "agy" ]; then
+        local auth_dir="$orig_home/.local/share/ai/agy/auth/$target"
+        if [ -d "$auth_dir" ]; then
+            info "Resetting OAuth credentials for agy alias '${target}' ..."
+            rm -rf "$auth_dir"
+            success "OAuth credentials reset: Removed $auth_dir"
+        fi
     fi
 }
