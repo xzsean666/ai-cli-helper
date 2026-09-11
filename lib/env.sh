@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-AI_CONFIG_DIR="${AI_CONFIG_DIR:-$HOME/.config/ai}"
+AI_CONFIG_DIR="${AI_CONFIG_DIR:-${AI_ORIGINAL_HOME:-$HOME}/.config/ai}"
 
 ensure_https_base_url() {
     local variable_name="$1"
@@ -73,11 +73,6 @@ load_environment() {
 setup_cli_home() {
     local alias_name="$1"
     
-    # 决定使用哪个 HOME profile 名称：
-    # 1. 如果在 provider 配置文件中定义了 AI_HOME_PROFILE，则优先使用该 profile（实现多 Key / 多账号共享 HOME）
-    # 2. 否则，默认使用各自别名/Provider 独立的 HOME 空间
-    local home_profile="${AI_HOME_PROFILE:-$alias_name}"
-
     # 获取底层真实的 CLI 名称（如 codex, claude, agy 等）
     local base_cli=""
     for base in codex claude gemini aider qwen openai agy; do
@@ -88,8 +83,22 @@ setup_cli_home() {
     done
     [ -z "$base_cli" ] && base_cli="$alias_name"
 
+    # 决定使用哪个 HOME profile 名称：
+    # 1. 如果在 provider 配置文件中定义了 AI_HOME_PROFILE，则优先使用该 profile（实现多 Key 共享 HOME）
+    # 2. 否则，默认使用各自别名/Provider 独立的 HOME 空间
+    local home_profile="${AI_HOME_PROFILE:-$alias_name}"
+
     # 保存系统真实的原始 HOME，避免嵌套调用导致路径层叠
     export AI_ORIGINAL_HOME="${AI_ORIGINAL_HOME:-$HOME}"
+
+    # 对于基于 OAuth 认证的 CLI（如 Google OAuth / ChatGPT OAuth），
+    # 凭据通常落地保存在 HOME 目录下。为了支持多账号与多终端并发运行，
+    # 每个 alias 必须拥有完全独立的 HOME 目录，彻底杜绝多终端/切换账号时的串号覆盖！
+    if [ "$AI_AUTH_MODE" = "google-oauth" ]; then
+        if [ "$home_profile" = "shared-team" ] || [ -z "$home_profile" ]; then
+            home_profile="$alias_name"
+        fi
+    fi
 
     local cli_home="$AI_ORIGINAL_HOME/.local/share/ai/${base_cli}/${home_profile}"
     mkdir -p "$cli_home"
@@ -100,6 +109,45 @@ setup_cli_home() {
     if [ "$base_cli" = "codex" ]; then
         export CODEX_HOME="$cli_home/.codex"
         mkdir -p "$CODEX_HOME"
+    fi
+
+    # 针对 agy (Google Antigravity CLI)，自动打通共享配置并复用系统开发环境
+    if [ "$base_cli" = "agy" ]; then
+        local shared_config_dir="$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-config"
+        if [ ! -d "$shared_config_dir" ]; then
+            mkdir -p "$shared_config_dir"
+            if [ -d "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/.gemini/config" ]; then
+                cp -r "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/.gemini/config/"* "$shared_config_dir/" 2>/dev/null || true
+            fi
+        fi
+        mkdir -p "$cli_home/.gemini"
+
+        # 共享全局 Skills、Workflows 和 MCP 配置 (~/.gemini/config)
+        if [ ! -e "$cli_home/.gemini/config" ]; then
+            ln -s "$shared_config_dir" "$cli_home/.gemini/config" 2>/dev/null || true
+        fi
+
+        # 初始 settings.json 继承：若当前 profile 尚未创建 settings.json，从已有配置继承
+        local profile_app_dir="$cli_home/.gemini/antigravity-cli"
+        mkdir -p "$profile_app_dir"
+        if [ ! -f "$profile_app_dir/settings.json" ]; then
+            if [ -f "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/.gemini/antigravity-cli/settings.json" ]; then
+                cp "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/.gemini/antigravity-cli/settings.json" "$profile_app_dir/settings.json" 2>/dev/null || true
+            elif [ -f "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/settings.json" ]; then
+                cp "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/settings.json" "$profile_app_dir/settings.json" 2>/dev/null || true
+            fi
+        fi
+
+        # 共享常用开发工具链（如 cargo, rustup, npm），避免在独立 profile 中找不到工具
+        for dev_dir in .cargo .rustup .npm; do
+            if [ ! -e "$cli_home/$dev_dir" ]; then
+                if [ -d "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/$dev_dir" ]; then
+                    ln -s "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/$dev_dir" "$cli_home/$dev_dir" 2>/dev/null || true
+                elif [ -d "$AI_ORIGINAL_HOME/$dev_dir" ]; then
+                    ln -s "$AI_ORIGINAL_HOME/$dev_dir" "$cli_home/$dev_dir" 2>/dev/null || true
+                fi
+            fi
+        done
     fi
 }
 
@@ -113,10 +161,34 @@ show_env() {
 
     if [ "$AI_AUTH_MODE" = "google-oauth" ]; then
         local auth_dir="$orig_home/.local/share/ai/agy/auth/${target}"
+        local profile_token="$orig_home/.local/share/ai/agy/${target}/.gemini/antigravity-cli/antigravity-oauth-token"
         local token_file="$auth_dir/antigravity-oauth-token"
+        [ ! -s "$token_file" ] && [ -s "$profile_token" ] && token_file="$profile_token"
         local email_file="$auth_dir/email.txt"
         local email=""
-        if [ -s "$email_file" ]; then
+        if [ -s "$token_file" ]; then
+            email=$(python3 -c "
+import json, sys, urllib.request
+try:
+    with open('$token_file') as f: data = json.load(f)
+    token = data.get('token', {})
+    acc = token.get('access_token', '') if isinstance(token, dict) else ''
+    if acc:
+        req = urllib.request.Request(f'https://oauth2.googleapis.com/tokeninfo?access_token={acc}')
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            em = json.loads(resp.read().decode()).get('email', '')
+            if em:
+                print(em)
+                sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+" 2>/dev/null)
+            if [ -n "$email" ]; then
+                [ -d "$auth_dir" ] && echo "$email" > "$email_file" 2>/dev/null
+            fi
+        fi
+        if [ -z "$email" ] && [ -s "$email_file" ]; then
             email="$(cat "$email_file" 2>/dev/null)"
         fi
         if [ -s "$token_file" ]; then
@@ -166,6 +238,9 @@ reset_cli_home() {
     fi
 
     local home_profile="${custom_profile:-${AI_HOME_PROFILE:-$target}}"
+    if [ "$AI_AUTH_MODE" = "google-oauth" ] && [ "$home_profile" = "shared-team" ]; then
+        home_profile="$target"
+    fi
 
     local base_cli=""
     for base in codex claude gemini aider qwen openai agy; do

@@ -14,23 +14,19 @@ APP_DATA_DIR="$HOME/.gemini/antigravity-cli"
 RUNTIME_TOKEN="$APP_DATA_DIR/antigravity-oauth-token"
 STORED_TOKEN="$AUTH_STORE_DIR/antigravity-oauth-token"
 STORED_EMAIL_FILE="$AUTH_STORE_DIR/email.txt"
-ACTIVE_ALIAS_FILE="$APP_DATA_DIR/.active_token_alias"
 
 mkdir -p "$AUTH_STORE_DIR/run"
 mkdir -p "$APP_DATA_DIR"
 mkdir -p "$HOME/.gemini"
 
-# Helper function to extract email from stored OAuth token
-get_stored_email() {
-    if [ -s "$STORED_EMAIL_FILE" ]; then
-        cat "$STORED_EMAIL_FILE" 2>/dev/null
-        return 0
-    fi
-    if [ -s "$STORED_TOKEN" ]; then
+# Helper function to extract email from an OAuth token file
+get_token_email() {
+    local token_file="$1"
+    if [ -s "$token_file" ]; then
         python3 -c "
 import json, sys, urllib.request
 try:
-    with open('$STORED_TOKEN') as f: data = json.load(f)
+    with open('$token_file') as f: data = json.load(f)
     token = data.get('token', {})
     acc = token.get('access_token', '') if isinstance(token, dict) else ''
     if acc:
@@ -55,22 +51,36 @@ case "$1" in
         echo "HOME Directory:  $HOME"
         echo "Auth Storage:    $AUTH_STORE_DIR"
         
-        email=$(get_stored_email)
-        if [ -n "$email" ]; then
-            [ ! -s "$STORED_EMAIL_FILE" ] && echo "$email" > "$STORED_EMAIL_FILE" 2>/dev/null
-            echo "Google Account:  $email"
-            exit 0
+        token_to_check=""
+        if [ -s "$RUNTIME_TOKEN" ]; then
+            token_to_check="$RUNTIME_TOKEN"
         elif [ -s "$STORED_TOKEN" ]; then
-            echo "Google Account:  (authenticated)"
+            token_to_check="$STORED_TOKEN"
+        fi
+
+        email=""
+        if [ -n "$token_to_check" ]; then
+            email=$(get_token_email "$token_to_check")
+            if [ -n "$email" ]; then
+                echo "$email" > "$STORED_EMAIL_FILE" 2>/dev/null
+            elif [ -s "$STORED_EMAIL_FILE" ]; then
+                email=$(cat "$STORED_EMAIL_FILE" 2>/dev/null)
+            fi
+            if [ -n "$email" ]; then
+                echo "Google Account:  $email"
+            else
+                echo "Google Account:  (authenticated)"
+            fi
             exit 0
         fi
+
         echo "Google Account:  (not logged in. Run 'ai $TARGET_ALIAS' or 'ai $TARGET_ALIAS login' to authenticate)"
         exit 0
         ;;
     logout)
         rm -f "$STORED_TOKEN" "$STORED_EMAIL_FILE"
         rm -f "$AUTH_STORE_DIR/oauth_creds.json" "$AUTH_STORE_DIR/google_accounts.json"
-        rm -f "$RUNTIME_TOKEN" "$ACTIVE_ALIAS_FILE"
+        rm -f "$RUNTIME_TOKEN"
         rm -f "$HOME/.gemini/oauth_creds.json" "$HOME/.gemini/google_accounts.json"
         echo "[SUCCESS] Logged out from alias '$TARGET_ALIAS'. Stored OAuth credentials removed."
         exit 0
@@ -80,29 +90,26 @@ case "$1" in
         # Clear existing creds so agy prompts for new authentication
         rm -f "$STORED_TOKEN" "$STORED_EMAIL_FILE"
         rm -f "$AUTH_STORE_DIR/oauth_creds.json" "$AUTH_STORE_DIR/google_accounts.json"
-        rm -f "$RUNTIME_TOKEN" "$ACTIVE_ALIAS_FILE"
+        rm -f "$RUNTIME_TOKEN"
         rm -f "$HOME/.gemini/oauth_creds.json" "$HOME/.gemini/google_accounts.json"
         shift
         ;;
 esac
 
-# Pre-execution: inject saved credentials for THIS alias into shared HOME
-if [ -s "$STORED_TOKEN" ]; then
+# Pre-execution: ensure profile runtime directory and auth store are in sync
+if [ -s "$STORED_TOKEN" ] && [ ! -s "$RUNTIME_TOKEN" ]; then
     cp -f "$STORED_TOKEN" "$RUNTIME_TOKEN"
     chmod 600 "$RUNTIME_TOKEN" 2>/dev/null || true
-    echo "$TARGET_ALIAS" > "$ACTIVE_ALIAS_FILE"
-    if [ -f "$AUTH_STORE_DIR/oauth_creds.json" ]; then
-        cp -f "$AUTH_STORE_DIR/oauth_creds.json" "$HOME/.gemini/oauth_creds.json"
-    fi
-    if [ -f "$AUTH_STORE_DIR/google_accounts.json" ]; then
-        cp -f "$AUTH_STORE_DIR/google_accounts.json" "$HOME/.gemini/google_accounts.json"
-    fi
-else
-    # For an alias without saved credentials, ensure $HOME/.gemini
-    # does not contain credentials belonging to another alias in a shared HOME profile.
-    rm -f "$RUNTIME_TOKEN"
-    rm -f "$HOME/.gemini/oauth_creds.json" "$HOME/.gemini/google_accounts.json"
-    echo "$TARGET_ALIAS" > "$ACTIVE_ALIAS_FILE"
+elif [ -s "$RUNTIME_TOKEN" ] && [ ! -s "$STORED_TOKEN" ]; then
+    cp -f "$RUNTIME_TOKEN" "$STORED_TOKEN"
+    chmod 600 "$STORED_TOKEN" 2>/dev/null || true
+fi
+
+if [ -f "$AUTH_STORE_DIR/oauth_creds.json" ] && [ ! -f "$HOME/.gemini/oauth_creds.json" ]; then
+    cp -f "$AUTH_STORE_DIR/oauth_creds.json" "$HOME/.gemini/oauth_creds.json" 2>/dev/null || true
+fi
+if [ -f "$AUTH_STORE_DIR/google_accounts.json" ] && [ ! -f "$HOME/.gemini/google_accounts.json" ]; then
+    cp -f "$AUTH_STORE_DIR/google_accounts.json" "$HOME/.gemini/google_accounts.json" 2>/dev/null || true
 fi
 
 # Trap to sync any updated or newly obtained credentials back to the alias auth store
@@ -111,42 +118,33 @@ sync_auth_back() {
         kill "$BG_SYNC_PID" 2>/dev/null || true
     fi
 
-    if [ -f "$ACTIVE_ALIAS_FILE" ]; then
-        local current_alias
-        current_alias="$(cat "$ACTIVE_ALIAS_FILE" 2>/dev/null)"
-        if [ "$current_alias" = "$TARGET_ALIAS" ]; then
-            if [ -s "$RUNTIME_TOKEN" ]; then
-                cp -f "$RUNTIME_TOKEN" "$STORED_TOKEN"
-                chmod 600 "$STORED_TOKEN" 2>/dev/null || true
-                if [ ! -s "$STORED_EMAIL_FILE" ]; then
-                    email=$(get_stored_email)
-                    [ -n "$email" ] && echo "$email" > "$STORED_EMAIL_FILE" 2>/dev/null
-                fi
-            fi
-            if [ -f "$HOME/.gemini/oauth_creds.json" ]; then
-                cp -f "$HOME/.gemini/oauth_creds.json" "$AUTH_STORE_DIR/oauth_creds.json" 2>/dev/null || true
-            fi
-            if [ -f "$HOME/.gemini/google_accounts.json" ]; then
-                cp -f "$HOME/.gemini/google_accounts.json" "$AUTH_STORE_DIR/google_accounts.json" 2>/dev/null || true
-            fi
-            # Always clean the runtime token from shared profile directory upon exit
-            rm -f "$RUNTIME_TOKEN"
-            rm -f "$ACTIVE_ALIAS_FILE"
-            rm -f "$HOME/.gemini/oauth_creds.json" "$HOME/.gemini/google_accounts.json"
-        fi
+    if [ -s "$RUNTIME_TOKEN" ]; then
+        cp -f "$RUNTIME_TOKEN" "$STORED_TOKEN" 2>/dev/null || true
+        chmod 600 "$STORED_TOKEN" 2>/dev/null || true
+        local email
+        email=$(get_token_email "$RUNTIME_TOKEN")
+        [ -n "$email" ] && echo "$email" > "$STORED_EMAIL_FILE" 2>/dev/null
     fi
+    if [ -f "$HOME/.gemini/oauth_creds.json" ]; then
+        cp -f "$HOME/.gemini/oauth_creds.json" "$AUTH_STORE_DIR/oauth_creds.json" 2>/dev/null || true
+    fi
+    if [ -f "$HOME/.gemini/google_accounts.json" ]; then
+        cp -f "$HOME/.gemini/google_accounts.json" "$AUTH_STORE_DIR/google_accounts.json" 2>/dev/null || true
+    fi
+    # DO NOT delete $RUNTIME_TOKEN upon exit. HOME is strictly isolated per alias!
 }
 trap sync_auth_back EXIT INT TERM HUP
 
-# Background watcher to sync token as soon as user completes OAuth in browser
+# Background watcher to sync token as soon as user completes OAuth in browser or token refreshes
 (
     while kill -0 $$ 2>/dev/null; do
         sleep 3
         if [ -s "$RUNTIME_TOKEN" ]; then
-            current_alias="$(cat "$ACTIVE_ALIAS_FILE" 2>/dev/null)"
-            if [ "$current_alias" = "$TARGET_ALIAS" ]; then
+            if [ ! -f "$STORED_TOKEN" ] || [ "$RUNTIME_TOKEN" -nt "$STORED_TOKEN" ]; then
                 cp -f "$RUNTIME_TOKEN" "$STORED_TOKEN" 2>/dev/null || true
                 chmod 600 "$STORED_TOKEN" 2>/dev/null || true
+                email=$(get_token_email "$RUNTIME_TOKEN")
+                [ -n "$email" ] && echo "$email" > "$STORED_EMAIL_FILE" 2>/dev/null
             fi
         fi
     done

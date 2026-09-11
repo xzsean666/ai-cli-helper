@@ -65,21 +65,21 @@ ai codexh              # 使用 ChatGPT OAuth 启动 Codex
 官方 Codex CLI 支持 `codex login` 的 ChatGPT 登录方式；OAuth 模式不需要配置
 `OPENAI_BASE_URL` 或 `OPENAI_API_KEY`。
 
-### Google Antigravity (AGY) OAuth 多账号与共享 HOME 支持
+### Google Antigravity (AGY) OAuth 多账号与并发隔离支持
 
-系统原生支持 Google Antigravity CLI (`agy`)，并通过独立 Auth Storage 完美解决 Google OAuth 在多账号切换与团队共享 HOME 时的凭据冲突问题。
+系统原生支持 Google Antigravity CLI (`agy`)，通过独立 Profile 隔离与独立 Auth Storage，彻底解决多终端并发运行或切换账号时的凭据冲突与串号问题：
 
-#### 1. 多账号独立登录
-- **`ai agya`**：绑定 Google 账号 A。首次运行提示 Google OAuth 授权链接，浏览器复制打开完成登录。
+#### 1. 多账号完全独立隔离
+- **`ai agya`**：绑定 Google 账号 A。首次运行提示 Google OAuth 授权链接，浏览器登录账号 A 完成认证。
 - **`ai agyb`**：绑定 Google 账号 B。首次运行提示 Google OAuth 授权链接，浏览器登录账号 B 完成认证。
-- 后续调用 `ai agya` 或 `ai agyb` 会自动切换到对应的 Google 账号。
+- **`ai agyc`** / **`ai agyd`**：分别绑定 Google 账号 C、D。
+- 每个别名拥有专属隔离的运行时 HOME 目录 (`~/.local/share/ai/agy/<alias>/`)，**不同终端同时并发运行多个 AI 互不干扰，换号/退出永不串号！**
 
-#### 2. 共享 HOME Profile (`shared-team`)
-在 `providers/agya.sh` 与 `providers/agyb.sh` 中均可配置：
-```bash
-export AI_HOME_PROFILE="shared-team"
-```
-此时两者共享同一套项目配置、技能与历史记录 (`~/.local/share/ai/agy/shared-team`)，而各自的 Google OAuth 凭据独立隔离在各自的 Auth Store 中，永不互相覆盖。
+#### 2. 全局配置与技能自动共享
+虽然各账号的 OAuth 凭据与运行时会话严格隔离，系统会自动打通并共享：
+- 全局 MCP 配置与 Skills/Workflows (`~/.gemini/config` 自动软链接到集中共享目录)。
+- 用户常用开发工具链（如 `cargo`, `rustup`, `npm` 等直接复用）。
+- 既享有团队共享配置的高效，又拥有多账号 100% 的凭据隔离安全。
 
 #### 3. 辅助命令
 - `ai agya whoami` : 查看 `agya` 当前绑定的 Google 账号邮箱与 HOME 状态

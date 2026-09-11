@@ -2,5 +2,5 @@
 export AI_PROVIDER_NAME="agyb"
 export AI_AUTH_MODE="google-oauth"
 
-# 共享 HOME 空间配置：与 agya 共享名为 'shared-team' 的 HOME Profile
-export AI_HOME_PROFILE="shared-team"
+# 独立 profile 隔离，确保多终端多账号并发运行互不串号
+export AI_HOME_PROFILE="agyb"

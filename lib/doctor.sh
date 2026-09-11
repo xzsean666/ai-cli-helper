@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-AI_CONFIG_DIR="${AI_CONFIG_DIR:-$HOME/.config/ai}"
+AI_CONFIG_DIR="${AI_CONFIG_DIR:-${AI_ORIGINAL_HOME:-$HOME}/.config/ai}"
 
 run_doctor() {
     info "Running Doctor Diagnostic Check..."
@@ -34,10 +34,34 @@ run_doctor() {
     elif [ "$AI_AUTH_MODE" = "google-oauth" ]; then
         local orig_home="${AI_ORIGINAL_HOME:-$HOME}"
         local auth_dir="$orig_home/.local/share/ai/agy/auth/${provider}"
+        local profile_token="$orig_home/.local/share/ai/agy/${provider}/.gemini/antigravity-cli/antigravity-oauth-token"
         local token_file="$auth_dir/antigravity-oauth-token"
+        [ ! -s "$token_file" ] && [ -s "$profile_token" ] && token_file="$profile_token"
         local email_file="$auth_dir/email.txt"
         local email=""
-        if [ -s "$email_file" ]; then
+        if [ -s "$token_file" ]; then
+            email=$(python3 -c "
+import json, sys, urllib.request
+try:
+    with open('$token_file') as f: data = json.load(f)
+    token = data.get('token', {})
+    acc = token.get('access_token', '') if isinstance(token, dict) else ''
+    if acc:
+        req = urllib.request.Request(f'https://oauth2.googleapis.com/tokeninfo?access_token={acc}')
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            em = json.loads(resp.read().decode()).get('email', '')
+            if em:
+                print(em)
+                sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+" 2>/dev/null)
+            if [ -n "$email" ]; then
+                [ -d "$auth_dir" ] && echo "$email" > "$email_file" 2>/dev/null
+            fi
+        fi
+        if [ -z "$email" ] && [ -s "$email_file" ]; then
             email="$(cat "$email_file" 2>/dev/null)"
         fi
         if [ -s "$token_file" ]; then

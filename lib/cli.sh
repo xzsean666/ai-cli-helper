@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 
-AI_CONFIG_DIR="${AI_CONFIG_DIR:-$HOME/.config/ai}"
+if [ -z "$AI_CONFIG_DIR" ]; then
+    if [ -n "$AI_ORIGINAL_HOME" ] && [ -d "$AI_ORIGINAL_HOME/.config/ai" ]; then
+        AI_CONFIG_DIR="$AI_ORIGINAL_HOME/.config/ai"
+    else
+        AI_CONFIG_DIR="$HOME/.config/ai"
+    fi
+fi
 
 run_cli() {
     local target_cmd="$1"

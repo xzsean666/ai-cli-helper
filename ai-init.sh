@@ -3,7 +3,7 @@
 # Quick installation & environment setup script for AI CLI Helper
 # Compatible with Linux (bash) and macOS (zsh / bash)
 
-AI_CONFIG_DIR="${AI_CONFIG_DIR:-$HOME/.config/ai}"
+AI_CONFIG_DIR="${AI_CONFIG_DIR:-${AI_ORIGINAL_HOME:-$HOME}/.config/ai}"
 
 # Add AI CLI Helper bin directory to PATH
 if [ -d "$AI_CONFIG_DIR/bin" ]; then

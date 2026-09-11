@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-AI_CONFIG_DIR="${AI_CONFIG_DIR:-$HOME/.config/ai}"
+AI_CONFIG_DIR="${AI_CONFIG_DIR:-${AI_ORIGINAL_HOME:-$HOME}/.config/ai}"
 CURRENT_PROVIDER_FILE="$AI_CONFIG_DIR/current_provider"
 
 get_current_provider() {
