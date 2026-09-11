@@ -13,6 +13,15 @@ if [ -d "$AI_CONFIG_DIR/bin" ]; then
     esac
 fi
 
+# Ensure user's local bin directory is in PATH (common location for agy/claude/uv)
+USER_HOME="${AI_ORIGINAL_HOME:-$HOME}"
+if [ -d "$USER_HOME/.local/bin" ]; then
+    case ":$PATH:" in
+        *:"$USER_HOME/.local/bin":*) ;;
+        *) export PATH="$USER_HOME/.local/bin:$PATH" ;;
+    esac
+fi
+
 # Determine if script is being sourced or executed directly
 IS_SOURCED=0
 if [ -n "$ZSH_VERSION" ]; then
