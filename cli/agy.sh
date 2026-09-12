@@ -46,8 +46,32 @@ sys.exit(1)
 # Helper subcommands for OAuth credential management
 case "$1" in
     whoami|status)
+        raw_prof="${AI_HOME_PROFILE:-shared-team}"
+        prof_lower=$(echo "$raw_prof" | tr '[:upper:]' '[:lower:]')
+        share_status=""
+        case "$prof_lower" in
+            "isolated"|"isolate"|"private"|"standalone")
+                share_status="Isolated (private to $TARGET_ALIAS)"
+                ;;
+            "shared"|"share"|"shared-team"|"shared-data"|"common"|"team")
+                if [ "$AI_SHARE_DATA" = "false" ]; then
+                    share_status="Isolated (private to $TARGET_ALIAS)"
+                else
+                    share_status="Shared (global: shared-data)"
+                fi
+                ;;
+            *)
+                if [ "$prof_lower" = "$TARGET_ALIAS" ]; then
+                    share_status="Isolated (private to $TARGET_ALIAS)"
+                else
+                    share_status="Shared (group pool: $raw_prof)"
+                fi
+                ;;
+        esac
+
         echo "Profile / Alias: $TARGET_ALIAS"
-        echo "HOME Profile:    ${AI_HOME_PROFILE:-$TARGET_ALIAS}"
+        echo "HOME Profile:    $raw_prof"
+        echo "Data Sharing:    $share_status"
         echo "HOME Directory:  $HOME"
         echo "Auth Storage:    $AUTH_STORE_DIR"
         

@@ -52,6 +52,12 @@ load_environment() {
         die "Provider config not found: $provider_file"
     fi
 
+    local caller_profile="${AI_HOME_PROFILE:-}"
+    # If caller_profile was inherited from a different alias, do not leak it across aliases
+    if [ -n "$caller_profile" ] && [ -n "$AI_ACTIVE_ALIAS" ] && [ "$caller_profile" = "$AI_ACTIVE_ALIAS" ] && [ "$caller_profile" != "$target" ]; then
+        caller_profile=""
+    fi
+
     # Unset critical variables before loading
     unset OPENAI_API_KEY ANTHROPIC_API_KEY GEMINI_API_KEY
     unset OPENAI_BASE_URL ANTHROPIC_BASE_URL GEMINI_BASE_URL
@@ -60,6 +66,10 @@ load_environment() {
     unset AI_HOME_PROFILE AI_AUTH_MODE
 
     source "$provider_file"
+
+    if [ -n "$caller_profile" ]; then
+        export AI_HOME_PROFILE="$caller_profile"
+    fi
 
     if [ -f "$secret_file" ]; then
         source "$secret_file"
@@ -83,25 +93,64 @@ setup_cli_home() {
     done
     [ -z "$base_cli" ] && base_cli="$alias_name"
 
-    # 决定使用哪个 HOME profile 名称：
-    # 1. 如果在 provider 配置文件中定义了 AI_HOME_PROFILE，则优先使用该 profile（实现多 Key 共享 HOME）
-    # 2. 否则，默认使用各自别名/Provider 独立的 HOME 空间
-    local home_profile="${AI_HOME_PROFILE:-$alias_name}"
-
     # 保存系统真实的原始 HOME，避免嵌套调用导致路径层叠
     export AI_ORIGINAL_HOME="${AI_ORIGINAL_HOME:-$HOME}"
 
-    # 对于基于 OAuth 认证的 CLI（如 Google OAuth / ChatGPT OAuth），
-    # 对于基于 OAuth 认证的 CLI（如 Google OAuth / ChatGPT OAuth），
-    # 凭据通常落地保存在 HOME 目录下。为了支持多账号与多终端并发运行，
-    # 每个 alias 拥有独立的凭据空间，彻底杜绝多终端/切换账号时的串号覆盖！
-    if [ "$AI_AUTH_MODE" = "google-oauth" ]; then
-        if [ "$home_profile" = "shared-team" ] || [ -z "$home_profile" ] || [ "$home_profile" = "agy" ]; then
+    # 解析当前配置的数据模式 (shared / isolated / group) 与 Profile 名称
+    local raw_profile="${AI_HOME_PROFILE:-shared-team}"
+    local profile_lower
+    profile_lower=$(echo "$raw_profile" | tr '[:upper:]' '[:lower:]')
+
+    local data_mode="shared"
+    local pool_name="shared-data"
+
+    case "$profile_lower" in
+        "isolated"|"isolate"|"private"|"standalone")
+            data_mode="isolated"
+            pool_name="$alias_name"
+            ;;
+        "shared"|"share"|"shared-team"|"shared-data"|"common"|"team")
+            if [ "$AI_SHARE_DATA" = "false" ]; then
+                data_mode="isolated"
+                pool_name="$alias_name"
+            else
+                data_mode="shared"
+                pool_name="shared-data"
+            fi
+            ;;
+        *)
+            if [ "$profile_lower" = "$alias_name" ]; then
+                data_mode="isolated"
+                pool_name="$alias_name"
+            else
+                data_mode="group"
+                pool_name="$raw_profile"
+            fi
+            ;;
+    esac
+
+    export AI_HOME_PROFILE="$raw_profile"
+    export AI_DATA_MODE="$data_mode"
+    export AI_DATA_POOL="$pool_name"
+
+    local cli_home
+    if [ "$base_cli" = "agy" ]; then
+        # agy CLI 拥有固定的 OAuth 凭据路径 ($HOME/.gemini/antigravity-cli/antigravity-oauth-token)。
+        # 为了杜绝多账号与多终端并发运行时凭据相互覆盖，agy 的 HOME 必须按 alias 独立隔离！
+        # 而对话历史、知识库、工作空间与记忆则根据 data_mode 决定软链接到共享池还是保持独立。
+        cli_home="$AI_ORIGINAL_HOME/.local/share/ai/agy/${alias_name}"
+    else
+        local home_profile
+        if [ "$data_mode" = "isolated" ]; then
             home_profile="$alias_name"
+        elif [ "$data_mode" = "shared" ]; then
+            home_profile="shared-team"
+        else
+            home_profile="$pool_name"
         fi
+        cli_home="$AI_ORIGINAL_HOME/.local/share/ai/${base_cli}/${home_profile}"
     fi
 
-    local cli_home="$AI_ORIGINAL_HOME/.local/share/ai/${base_cli}/${home_profile}"
     mkdir -p "$cli_home"
     export HOME="$cli_home"
 
@@ -112,7 +161,7 @@ setup_cli_home() {
         mkdir -p "$CODEX_HOME"
     fi
 
-    # 针对 agy (Google Antigravity CLI)，自动打通共享配置并复用系统开发环境
+    # 针对 agy (Google Antigravity CLI)，根据 data_mode 控制数据持久化、共享与隔离
     if [ "$base_cli" = "agy" ]; then
         # 1. 共享全局 Skills、Workflows 和 MCP 配置 (~/.gemini/config)
         local shared_config_dir="$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-config"
@@ -120,6 +169,8 @@ setup_cli_home() {
             mkdir -p "$shared_config_dir"
             if [ -d "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/.gemini/config" ]; then
                 cp -r "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/.gemini/config/"* "$shared_config_dir/" 2>/dev/null || true
+            elif [ -d "$AI_ORIGINAL_HOME/.gemini/config" ]; then
+                cp -r "$AI_ORIGINAL_HOME/.gemini/config/"* "$shared_config_dir/" 2>/dev/null || true
             fi
         fi
         mkdir -p "$cli_home/.gemini"
@@ -127,55 +178,110 @@ setup_cli_home() {
             ln -s "$shared_config_dir" "$cli_home/.gemini/config" 2>/dev/null || true
         fi
 
-        # 2. 共享持久化数据目录 (conversations, brain, db, history, knowledge, annotations, scratch)
-        local shared_data_dir="$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-data"
-        if [ ! -e "$shared_data_dir" ]; then
-            if [ -d "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/.gemini/antigravity-cli" ]; then
-                ln -s "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/.gemini/antigravity-cli" "$shared_data_dir"
-            else
-                mkdir -p "$shared_data_dir"
-                mkdir -p "$shared_data_dir"/{brain,conversations,knowledge,annotations,scratch}
-                if [ -d "$AI_ORIGINAL_HOME/.gemini/antigravity-cli" ]; then
-                    cp -rn "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/brain" "$shared_data_dir/" 2>/dev/null || true
-                    cp -rn "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/conversations" "$shared_data_dir/" 2>/dev/null || true
-                    [ -f "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/conversation_summaries.db" ] && cp "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/conversation_summaries.db" "$shared_data_dir/" 2>/dev/null || true
-                    [ -f "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/history.jsonl" ] && cp "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/history.jsonl" "$shared_data_dir/" 2>/dev/null || true
-                    [ -f "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/settings.json" ] && cp "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/settings.json" "$shared_data_dir/" 2>/dev/null || true
-                fi
-            fi
-        fi
-        mkdir -p "$shared_data_dir"/{brain,conversations,knowledge,annotations,scratch}
-
-        # 3. 为当前 profile 初始化 .gemini/antigravity-cli 目录结构
+        # 2. 为当前 profile 初始化 .gemini/antigravity-cli 运行时基础目录
         local profile_app_dir="$cli_home/.gemini/antigravity-cli"
         mkdir -p "$profile_app_dir"/{log,crashes,presence}
 
-        # 4. 迁移与打通 shared-data 软链接 (确保多账号共享对话、工作空间与记忆，同时凭据独立)
-        # (a) brain
-        if [ ! -e "$profile_app_dir/brain" ]; then
-            ln -s "$shared_data_dir/brain" "$profile_app_dir/brain" 2>/dev/null || true
-        elif [ -d "$profile_app_dir/brain" ] && [ ! -L "$profile_app_dir/brain" ]; then
-            cp -rn "$profile_app_dir/brain/"* "$shared_data_dir/brain/" 2>/dev/null || true
-            rm -rf "$profile_app_dir/brain" 2>/dev/null && ln -s "$shared_data_dir/brain" "$profile_app_dir/brain" 2>/dev/null || true
-        fi
+        # 3. 根持久化共享池目录（全局 shared-data）
+        local global_shared_data="$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-data"
+        mkdir -p "$global_shared_data"/{brain,conversations,knowledge,annotations,scratch}
 
-        # (b) conversations
-        if [ ! -e "$profile_app_dir/conversations" ]; then
-            ln -s "$shared_data_dir/conversations" "$profile_app_dir/conversations" 2>/dev/null || true
-        elif [ -d "$profile_app_dir/conversations" ] && [ ! -L "$profile_app_dir/conversations" ]; then
-            cp -rn "$profile_app_dir/conversations/"* "$shared_data_dir/conversations/" 2>/dev/null || true
-            rm -rf "$profile_app_dir/conversations" 2>/dev/null && ln -s "$shared_data_dir/conversations" "$profile_app_dir/conversations" 2>/dev/null || true
-        fi
+        # 4. 根据 data_mode 决定数据存储策略
+        if [ "$data_mode" = "isolated" ]; then
+            # === 完全私有隔离模式 (Isolated Mode) ===
+            # 解除所有指向共享池的软链接，建立本地私有独立目录与文件
+            for item in brain conversations knowledge annotations scratch; do
+                if [ -L "$profile_app_dir/$item" ]; then
+                    rm -f "$profile_app_dir/$item"
+                fi
+                mkdir -p "$profile_app_dir/$item"
+            done
 
-        # (c) conversation_summaries.db
-        if [ -f "$shared_data_dir/conversation_summaries.db" ]; then
-            if [ ! -e "$profile_app_dir/conversation_summaries.db" ]; then
-                ln -s "$shared_data_dir/conversation_summaries.db" "$profile_app_dir/conversation_summaries.db" 2>/dev/null || true
-            elif [ -f "$profile_app_dir/conversation_summaries.db" ] && [ ! -L "$profile_app_dir/conversation_summaries.db" ]; then
-                python3 -c "
+            if [ -L "$profile_app_dir/conversation_summaries.db" ]; then
+                rm -f "$profile_app_dir/conversation_summaries.db"*
+            fi
+
+            if [ -L "$profile_app_dir/history.jsonl" ]; then
+                rm -f "$profile_app_dir/history.jsonl"
+                touch "$profile_app_dir/history.jsonl"
+            else
+                [ -f "$profile_app_dir/history.jsonl" ] || touch "$profile_app_dir/history.jsonl"
+            fi
+
+            if [ -L "$profile_app_dir/settings.json" ]; then
+                local real_settings
+                real_settings=$(readlink -f "$profile_app_dir/settings.json" 2>/dev/null || true)
+                rm -f "$profile_app_dir/settings.json"
+                if [ -f "$real_settings" ]; then
+                    cp "$real_settings" "$profile_app_dir/settings.json" 2>/dev/null || true
+                fi
+            fi
+            if [ ! -f "$profile_app_dir/settings.json" ] && [ -f "$global_shared_data/settings.json" ]; then
+                cp "$global_shared_data/settings.json" "$profile_app_dir/settings.json" 2>/dev/null || true
+            fi
+
+            if [ ! -f "$profile_app_dir/jetski_state.pbtxt" ] && [ -f "$global_shared_data/jetski_state.pbtxt" ]; then
+                cp "$global_shared_data/jetski_state.pbtxt" "$profile_app_dir/jetski_state.pbtxt" 2>/dev/null || true
+            fi
+            if [ ! -f "$profile_app_dir/installation_id" ] && [ -f "$global_shared_data/installation_id" ]; then
+                cp "$global_shared_data/installation_id" "$profile_app_dir/installation_id" 2>/dev/null || true
+            fi
+
+        else
+            # === 共享模式 (Shared: 全局 shared-data 或 Group: pools/<name>) ===
+            local target_pool_dir
+            if [ "$data_mode" = "shared" ]; then
+                target_pool_dir="$global_shared_data"
+            else
+                target_pool_dir="$AI_ORIGINAL_HOME/.local/share/ai/agy/pools/${pool_name}"
+            fi
+
+            mkdir -p "$target_pool_dir"/{brain,conversations,knowledge,annotations,scratch}
+            if [ ! -f "$target_pool_dir/settings.json" ] && [ -f "$global_shared_data/settings.json" ]; then
+                cp "$global_shared_data/settings.json" "$target_pool_dir/settings.json" 2>/dev/null || true
+            fi
+            if [ ! -f "$target_pool_dir/jetski_state.pbtxt" ] && [ -f "$global_shared_data/jetski_state.pbtxt" ]; then
+                cp "$global_shared_data/jetski_state.pbtxt" "$target_pool_dir/jetski_state.pbtxt" 2>/dev/null || true
+            fi
+            if [ ! -f "$target_pool_dir/installation_id" ] && [ -f "$global_shared_data/installation_id" ]; then
+                cp "$global_shared_data/installation_id" "$target_pool_dir/installation_id" 2>/dev/null || true
+            fi
+
+            # (a) 目录软链接 (brain, conversations, knowledge, annotations, scratch)
+            for item in brain conversations knowledge annotations scratch; do
+                if [ -L "$profile_app_dir/$item" ]; then
+                    local cur_link
+                    cur_link=$(readlink "$profile_app_dir/$item" 2>/dev/null || true)
+                    if [ "$cur_link" != "$target_pool_dir/$item" ]; then
+                        rm -f "$profile_app_dir/$item"
+                        ln -sfn "$target_pool_dir/$item" "$profile_app_dir/$item" 2>/dev/null || true
+                    fi
+                elif [ -d "$profile_app_dir/$item" ]; then
+                    # 之前在 isolated 模式下生成的本地内容，无缝迁移合并进共享池
+                    cp -rn "$profile_app_dir/$item/"* "$target_pool_dir/$item/" 2>/dev/null || true
+                    rm -rf "$profile_app_dir/$item" 2>/dev/null
+                    ln -sfn "$target_pool_dir/$item" "$profile_app_dir/$item" 2>/dev/null || true
+                else
+                    rm -f "$profile_app_dir/$item" 2>/dev/null || true
+                    ln -sfn "$target_pool_dir/$item" "$profile_app_dir/$item" 2>/dev/null || true
+                fi
+            done
+
+            # (b) conversation_summaries.db (SQLite 会话索引数据库)
+            if [ -f "$target_pool_dir/conversation_summaries.db" ]; then
+                if [ -L "$profile_app_dir/conversation_summaries.db" ]; then
+                    local cur_db_link
+                    cur_db_link=$(readlink "$profile_app_dir/conversation_summaries.db" 2>/dev/null || true)
+                    if [ "$cur_db_link" != "$target_pool_dir/conversation_summaries.db" ]; then
+                        rm -f "$profile_app_dir/conversation_summaries.db"*
+                        ln -sf "$target_pool_dir/conversation_summaries.db" "$profile_app_dir/conversation_summaries.db" 2>/dev/null || true
+                    fi
+                elif [ -f "$profile_app_dir/conversation_summaries.db" ]; then
+                    # 合并本地 SQLite 记录至共享池 DB
+                    python3 -c "
 import sqlite3, os
 src_db = '$profile_app_dir/conversation_summaries.db'
-dst_db = '$shared_data_dir/conversation_summaries.db'
+dst_db = '$target_pool_dir/conversation_summaries.db'
 if os.path.isfile(src_db) and os.path.isfile(dst_db):
     try:
         conn = sqlite3.connect(dst_db)
@@ -186,56 +292,58 @@ if os.path.isfile(src_db) and os.path.isfile(dst_db):
         conn.close()
     except Exception: pass
 " 2>/dev/null || true
+                    rm -f "$profile_app_dir/conversation_summaries.db"* 2>/dev/null
+                    ln -sf "$target_pool_dir/conversation_summaries.db" "$profile_app_dir/conversation_summaries.db" 2>/dev/null || true
+                else
+                    rm -f "$profile_app_dir/conversation_summaries.db"* 2>/dev/null
+                    ln -sf "$target_pool_dir/conversation_summaries.db" "$profile_app_dir/conversation_summaries.db" 2>/dev/null || true
+                fi
+            elif [ -f "$profile_app_dir/conversation_summaries.db" ] && [ ! -L "$profile_app_dir/conversation_summaries.db" ]; then
+                cp "$profile_app_dir/conversation_summaries.db" "$target_pool_dir/conversation_summaries.db" 2>/dev/null || true
                 rm -f "$profile_app_dir/conversation_summaries.db"* 2>/dev/null
-                ln -s "$shared_data_dir/conversation_summaries.db" "$profile_app_dir/conversation_summaries.db" 2>/dev/null || true
+                ln -sf "$target_pool_dir/conversation_summaries.db" "$profile_app_dir/conversation_summaries.db" 2>/dev/null || true
             fi
-        fi
 
-        # (d) history.jsonl
-        [ -f "$shared_data_dir/history.jsonl" ] || touch "$shared_data_dir/history.jsonl"
-        if [ ! -e "$profile_app_dir/history.jsonl" ]; then
-            ln -s "$shared_data_dir/history.jsonl" "$profile_app_dir/history.jsonl" 2>/dev/null || true
-        elif [ -f "$profile_app_dir/history.jsonl" ] && [ ! -L "$profile_app_dir/history.jsonl" ]; then
-            cat "$profile_app_dir/history.jsonl" >> "$shared_data_dir/history.jsonl" 2>/dev/null || true
-            rm -f "$profile_app_dir/history.jsonl" 2>/dev/null
-            ln -s "$shared_data_dir/history.jsonl" "$profile_app_dir/history.jsonl" 2>/dev/null || true
-        fi
-
-        # (e) knowledge, annotations, scratch
-        for common_item in knowledge annotations scratch; do
-            mkdir -p "$shared_data_dir/$common_item"
-            if [ ! -e "$profile_app_dir/$common_item" ]; then
-                ln -s "$shared_data_dir/$common_item" "$profile_app_dir/$common_item" 2>/dev/null || true
-            elif [ -d "$profile_app_dir/$common_item" ] && [ ! -L "$profile_app_dir/$common_item" ]; then
-                cp -rn "$profile_app_dir/$common_item/"* "$shared_data_dir/$common_item/" 2>/dev/null || true
-                rm -rf "$profile_app_dir/$common_item" 2>/dev/null
-                ln -s "$shared_data_dir/$common_item" "$profile_app_dir/$common_item" 2>/dev/null || true
+            # (c) history.jsonl
+            [ -f "$target_pool_dir/history.jsonl" ] || touch "$target_pool_dir/history.jsonl"
+            if [ -L "$profile_app_dir/history.jsonl" ]; then
+                local cur_hist_link
+                cur_hist_link=$(readlink "$profile_app_dir/history.jsonl" 2>/dev/null || true)
+                if [ "$cur_hist_link" != "$target_pool_dir/history.jsonl" ]; then
+                    rm -f "$profile_app_dir/history.jsonl"
+                    ln -sf "$target_pool_dir/history.jsonl" "$profile_app_dir/history.jsonl" 2>/dev/null || true
+                fi
+            elif [ -f "$profile_app_dir/history.jsonl" ]; then
+                cat "$profile_app_dir/history.jsonl" >> "$target_pool_dir/history.jsonl" 2>/dev/null || true
+                rm -f "$profile_app_dir/history.jsonl" 2>/dev/null
+                ln -sf "$target_pool_dir/history.jsonl" "$profile_app_dir/history.jsonl" 2>/dev/null || true
+            else
+                rm -f "$profile_app_dir/history.jsonl" 2>/dev/null
+                ln -sf "$target_pool_dir/history.jsonl" "$profile_app_dir/history.jsonl" 2>/dev/null || true
             fi
-        done
 
-        # (f) settings.json
-        if [ ! -f "$shared_data_dir/settings.json" ]; then
-            if [ -f "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/settings.json" ]; then
-                cp "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/settings.json" "$shared_data_dir/settings.json" 2>/dev/null || true
-            elif [ -f "$profile_app_dir/settings.json" ]; then
-                cp "$profile_app_dir/settings.json" "$shared_data_dir/settings.json" 2>/dev/null || true
+            # (d) settings.json
+            if [ -f "$target_pool_dir/settings.json" ]; then
+                if [ -L "$profile_app_dir/settings.json" ]; then
+                    local cur_set_link
+                    cur_set_link=$(readlink "$profile_app_dir/settings.json" 2>/dev/null || true)
+                    if [ "$cur_set_link" != "$target_pool_dir/settings.json" ]; then
+                        rm -f "$profile_app_dir/settings.json"
+                        ln -sf "$target_pool_dir/settings.json" "$profile_app_dir/settings.json" 2>/dev/null || true
+                    fi
+                else
+                    rm -f "$profile_app_dir/settings.json" 2>/dev/null
+                    ln -sf "$target_pool_dir/settings.json" "$profile_app_dir/settings.json" 2>/dev/null || true
+                fi
             fi
-        fi
-        if [ -f "$shared_data_dir/settings.json" ]; then
-            if [ ! -e "$profile_app_dir/settings.json" ]; then
-                ln -s "$shared_data_dir/settings.json" "$profile_app_dir/settings.json" 2>/dev/null || true
-            elif [ ! -L "$profile_app_dir/settings.json" ]; then
-                rm -f "$profile_app_dir/settings.json" 2>/dev/null
-                ln -s "$shared_data_dir/settings.json" "$profile_app_dir/settings.json" 2>/dev/null || true
-            fi
-        fi
 
-        # (g) jetski_state.pbtxt & installation_id (保持 workspace 及初始化配置统一)
-        if [ -f "$shared_data_dir/jetski_state.pbtxt" ] && [ ! -f "$profile_app_dir/jetski_state.pbtxt" ]; then
-            cp "$shared_data_dir/jetski_state.pbtxt" "$profile_app_dir/jetski_state.pbtxt" 2>/dev/null || true
-        fi
-        if [ -f "$shared_data_dir/installation_id" ] && [ ! -f "$profile_app_dir/installation_id" ]; then
-            cp "$shared_data_dir/installation_id" "$profile_app_dir/installation_id" 2>/dev/null || true
+            # (e) jetski_state.pbtxt & installation_id (保持 workspace 及初始化配置统一)
+            if [ -f "$target_pool_dir/jetski_state.pbtxt" ] && [ ! -f "$profile_app_dir/jetski_state.pbtxt" ]; then
+                cp "$target_pool_dir/jetski_state.pbtxt" "$profile_app_dir/jetski_state.pbtxt" 2>/dev/null || true
+            fi
+            if [ -f "$target_pool_dir/installation_id" ] && [ ! -f "$profile_app_dir/installation_id" ]; then
+                cp "$target_pool_dir/installation_id" "$profile_app_dir/installation_id" 2>/dev/null || true
+            fi
         fi
 
         # 5. 共享常用开发工具链（如 cargo, rustup, npm）及 Git / SSH / GitHub CLI 配置
@@ -287,6 +395,41 @@ show_env() {
     echo -e "${BOLD}Target/Provider:${NC} $AI_ACTIVE_PROVIDER"
     echo -e "${BOLD}Auth Mode:${NC}       ${AI_AUTH_MODE:-api-key}"
     echo -e "${BOLD}HOME Profile:${NC}    ${AI_HOME_PROFILE:-default ($target)}"
+
+    local base_cli=""
+    for base in codex claude gemini aider qwen openai agy; do
+        if [[ "$target" == "${base}"* ]]; then
+            base_cli="$base"
+            break
+        fi
+    done
+    [ -z "$base_cli" ] && base_cli="$target"
+
+    local raw_profile="${AI_HOME_PROFILE:-shared-team}"
+    local profile_lower
+    profile_lower=$(echo "$raw_profile" | tr '[:upper:]' '[:lower:]')
+
+    local data_sharing=""
+    case "$profile_lower" in
+        "isolated"|"isolate"|"private"|"standalone")
+            data_sharing="Isolated (private to $target)"
+            ;;
+        "shared"|"share"|"shared-team"|"shared-data"|"common"|"team")
+            if [ "$AI_SHARE_DATA" = "false" ]; then
+                data_sharing="Isolated (private to $target)"
+            else
+                data_sharing="Shared (global: shared-data)"
+            fi
+            ;;
+        *)
+            if [ "$profile_lower" = "$target" ]; then
+                data_sharing="Isolated (private to $target)"
+            else
+                data_sharing="Shared (group pool: $raw_profile)"
+            fi
+            ;;
+    esac
+    echo -e "${BOLD}Data Sharing:${NC}    $data_sharing"
 
     if [ "$AI_AUTH_MODE" = "google-oauth" ]; then
         local auth_dir="$orig_home/.local/share/ai/agy/auth/${target}"
@@ -366,11 +509,6 @@ reset_cli_home() {
         load_environment "$target" 2>/dev/null || true
     fi
 
-    local home_profile="${custom_profile:-${AI_HOME_PROFILE:-$target}}"
-    if [ "$AI_AUTH_MODE" = "google-oauth" ] && [ "$home_profile" = "shared-team" ]; then
-        home_profile="$target"
-    fi
-
     local base_cli=""
     for base in codex claude gemini aider qwen openai agy; do
         if [[ "$target" == "${base}"* ]]; then
@@ -381,9 +519,15 @@ reset_cli_home() {
     [ -z "$base_cli" ] && base_cli="$target"
 
     local orig_home="${AI_ORIGINAL_HOME:-$HOME}"
-    local cli_home="$orig_home/.local/share/ai/${base_cli}/${home_profile}"
+    local cli_home
+    if [ "$base_cli" = "agy" ]; then
+        cli_home="$orig_home/.local/share/ai/agy/${target}"
+    else
+        local home_profile="${custom_profile:-${AI_HOME_PROFILE:-$target}}"
+        cli_home="$orig_home/.local/share/ai/${base_cli}/${home_profile}"
+    fi
 
-    info "Resetting HOME profile for '${base_cli}' (${home_profile}) ..."
+    info "Resetting profile for '${base_cli}' (${target}) ..."
     if [ -d "$cli_home" ]; then
         rm -rf "$cli_home"
         success "Reset complete: Removed $cli_home"
