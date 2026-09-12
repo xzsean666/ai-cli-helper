@@ -92,10 +92,11 @@ setup_cli_home() {
     export AI_ORIGINAL_HOME="${AI_ORIGINAL_HOME:-$HOME}"
 
     # 对于基于 OAuth 认证的 CLI（如 Google OAuth / ChatGPT OAuth），
+    # 对于基于 OAuth 认证的 CLI（如 Google OAuth / ChatGPT OAuth），
     # 凭据通常落地保存在 HOME 目录下。为了支持多账号与多终端并发运行，
-    # 每个 alias 必须拥有完全独立的 HOME 目录，彻底杜绝多终端/切换账号时的串号覆盖！
+    # 每个 alias 拥有独立的凭据空间，彻底杜绝多终端/切换账号时的串号覆盖！
     if [ "$AI_AUTH_MODE" = "google-oauth" ]; then
-        if [ "$home_profile" = "shared-team" ] || [ -z "$home_profile" ]; then
+        if [ "$home_profile" = "shared-team" ] || [ -z "$home_profile" ] || [ "$home_profile" = "agy" ]; then
             home_profile="$alias_name"
         fi
     fi
@@ -113,6 +114,7 @@ setup_cli_home() {
 
     # 针对 agy (Google Antigravity CLI)，自动打通共享配置并复用系统开发环境
     if [ "$base_cli" = "agy" ]; then
+        # 1. 共享全局 Skills、Workflows 和 MCP 配置 (~/.gemini/config)
         local shared_config_dir="$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-config"
         if [ ! -d "$shared_config_dir" ]; then
             mkdir -p "$shared_config_dir"
@@ -121,24 +123,122 @@ setup_cli_home() {
             fi
         fi
         mkdir -p "$cli_home/.gemini"
-
-        # 共享全局 Skills、Workflows 和 MCP 配置 (~/.gemini/config)
         if [ ! -e "$cli_home/.gemini/config" ]; then
             ln -s "$shared_config_dir" "$cli_home/.gemini/config" 2>/dev/null || true
         fi
 
-        # 初始 settings.json 继承：若当前 profile 尚未创建 settings.json，从已有配置继承
+        # 2. 共享持久化数据目录 (conversations, brain, db, history, knowledge, annotations, scratch)
+        local shared_data_dir="$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-data"
+        if [ ! -e "$shared_data_dir" ]; then
+            if [ -d "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/.gemini/antigravity-cli" ]; then
+                ln -s "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/.gemini/antigravity-cli" "$shared_data_dir"
+            else
+                mkdir -p "$shared_data_dir"
+                mkdir -p "$shared_data_dir"/{brain,conversations,knowledge,annotations,scratch}
+                if [ -d "$AI_ORIGINAL_HOME/.gemini/antigravity-cli" ]; then
+                    cp -rn "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/brain" "$shared_data_dir/" 2>/dev/null || true
+                    cp -rn "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/conversations" "$shared_data_dir/" 2>/dev/null || true
+                    [ -f "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/conversation_summaries.db" ] && cp "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/conversation_summaries.db" "$shared_data_dir/" 2>/dev/null || true
+                    [ -f "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/history.jsonl" ] && cp "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/history.jsonl" "$shared_data_dir/" 2>/dev/null || true
+                    [ -f "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/settings.json" ] && cp "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/settings.json" "$shared_data_dir/" 2>/dev/null || true
+                fi
+            fi
+        fi
+        mkdir -p "$shared_data_dir"/{brain,conversations,knowledge,annotations,scratch}
+
+        # 3. 为当前 profile 初始化 .gemini/antigravity-cli 目录结构
         local profile_app_dir="$cli_home/.gemini/antigravity-cli"
-        mkdir -p "$profile_app_dir"
-        if [ ! -f "$profile_app_dir/settings.json" ]; then
-            if [ -f "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/.gemini/antigravity-cli/settings.json" ]; then
-                cp "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/.gemini/antigravity-cli/settings.json" "$profile_app_dir/settings.json" 2>/dev/null || true
-            elif [ -f "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/settings.json" ]; then
-                cp "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/settings.json" "$profile_app_dir/settings.json" 2>/dev/null || true
+        mkdir -p "$profile_app_dir"/{log,crashes,presence}
+
+        # 4. 迁移与打通 shared-data 软链接 (确保多账号共享对话、工作空间与记忆，同时凭据独立)
+        # (a) brain
+        if [ ! -e "$profile_app_dir/brain" ]; then
+            ln -s "$shared_data_dir/brain" "$profile_app_dir/brain" 2>/dev/null || true
+        elif [ -d "$profile_app_dir/brain" ] && [ ! -L "$profile_app_dir/brain" ]; then
+            cp -rn "$profile_app_dir/brain/"* "$shared_data_dir/brain/" 2>/dev/null || true
+            rm -rf "$profile_app_dir/brain" 2>/dev/null && ln -s "$shared_data_dir/brain" "$profile_app_dir/brain" 2>/dev/null || true
+        fi
+
+        # (b) conversations
+        if [ ! -e "$profile_app_dir/conversations" ]; then
+            ln -s "$shared_data_dir/conversations" "$profile_app_dir/conversations" 2>/dev/null || true
+        elif [ -d "$profile_app_dir/conversations" ] && [ ! -L "$profile_app_dir/conversations" ]; then
+            cp -rn "$profile_app_dir/conversations/"* "$shared_data_dir/conversations/" 2>/dev/null || true
+            rm -rf "$profile_app_dir/conversations" 2>/dev/null && ln -s "$shared_data_dir/conversations" "$profile_app_dir/conversations" 2>/dev/null || true
+        fi
+
+        # (c) conversation_summaries.db
+        if [ -f "$shared_data_dir/conversation_summaries.db" ]; then
+            if [ ! -e "$profile_app_dir/conversation_summaries.db" ]; then
+                ln -s "$shared_data_dir/conversation_summaries.db" "$profile_app_dir/conversation_summaries.db" 2>/dev/null || true
+            elif [ -f "$profile_app_dir/conversation_summaries.db" ] && [ ! -L "$profile_app_dir/conversation_summaries.db" ]; then
+                python3 -c "
+import sqlite3, os
+src_db = '$profile_app_dir/conversation_summaries.db'
+dst_db = '$shared_data_dir/conversation_summaries.db'
+if os.path.isfile(src_db) and os.path.isfile(dst_db):
+    try:
+        conn = sqlite3.connect(dst_db)
+        cur = conn.cursor()
+        cur.execute('ATTACH DATABASE ? AS src', (src_db,))
+        cur.execute('INSERT OR IGNORE INTO main.conversation_summaries SELECT * FROM src.conversation_summaries')
+        conn.commit()
+        conn.close()
+    except Exception: pass
+" 2>/dev/null || true
+                rm -f "$profile_app_dir/conversation_summaries.db"* 2>/dev/null
+                ln -s "$shared_data_dir/conversation_summaries.db" "$profile_app_dir/conversation_summaries.db" 2>/dev/null || true
             fi
         fi
 
-        # 共享常用开发工具链（如 cargo, rustup, npm），避免在独立 profile 中找不到工具
+        # (d) history.jsonl
+        [ -f "$shared_data_dir/history.jsonl" ] || touch "$shared_data_dir/history.jsonl"
+        if [ ! -e "$profile_app_dir/history.jsonl" ]; then
+            ln -s "$shared_data_dir/history.jsonl" "$profile_app_dir/history.jsonl" 2>/dev/null || true
+        elif [ -f "$profile_app_dir/history.jsonl" ] && [ ! -L "$profile_app_dir/history.jsonl" ]; then
+            cat "$profile_app_dir/history.jsonl" >> "$shared_data_dir/history.jsonl" 2>/dev/null || true
+            rm -f "$profile_app_dir/history.jsonl" 2>/dev/null
+            ln -s "$shared_data_dir/history.jsonl" "$profile_app_dir/history.jsonl" 2>/dev/null || true
+        fi
+
+        # (e) knowledge, annotations, scratch
+        for common_item in knowledge annotations scratch; do
+            mkdir -p "$shared_data_dir/$common_item"
+            if [ ! -e "$profile_app_dir/$common_item" ]; then
+                ln -s "$shared_data_dir/$common_item" "$profile_app_dir/$common_item" 2>/dev/null || true
+            elif [ -d "$profile_app_dir/$common_item" ] && [ ! -L "$profile_app_dir/$common_item" ]; then
+                cp -rn "$profile_app_dir/$common_item/"* "$shared_data_dir/$common_item/" 2>/dev/null || true
+                rm -rf "$profile_app_dir/$common_item" 2>/dev/null
+                ln -s "$shared_data_dir/$common_item" "$profile_app_dir/$common_item" 2>/dev/null || true
+            fi
+        done
+
+        # (f) settings.json
+        if [ ! -f "$shared_data_dir/settings.json" ]; then
+            if [ -f "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/settings.json" ]; then
+                cp "$AI_ORIGINAL_HOME/.gemini/antigravity-cli/settings.json" "$shared_data_dir/settings.json" 2>/dev/null || true
+            elif [ -f "$profile_app_dir/settings.json" ]; then
+                cp "$profile_app_dir/settings.json" "$shared_data_dir/settings.json" 2>/dev/null || true
+            fi
+        fi
+        if [ -f "$shared_data_dir/settings.json" ]; then
+            if [ ! -e "$profile_app_dir/settings.json" ]; then
+                ln -s "$shared_data_dir/settings.json" "$profile_app_dir/settings.json" 2>/dev/null || true
+            elif [ ! -L "$profile_app_dir/settings.json" ]; then
+                rm -f "$profile_app_dir/settings.json" 2>/dev/null
+                ln -s "$shared_data_dir/settings.json" "$profile_app_dir/settings.json" 2>/dev/null || true
+            fi
+        fi
+
+        # (g) jetski_state.pbtxt & installation_id (保持 workspace 及初始化配置统一)
+        if [ -f "$shared_data_dir/jetski_state.pbtxt" ] && [ ! -f "$profile_app_dir/jetski_state.pbtxt" ]; then
+            cp "$shared_data_dir/jetski_state.pbtxt" "$profile_app_dir/jetski_state.pbtxt" 2>/dev/null || true
+        fi
+        if [ -f "$shared_data_dir/installation_id" ] && [ ! -f "$profile_app_dir/installation_id" ]; then
+            cp "$shared_data_dir/installation_id" "$profile_app_dir/installation_id" 2>/dev/null || true
+        fi
+
+        # 5. 共享常用开发工具链（如 cargo, rustup, npm）及 Git / SSH / GitHub CLI 配置
         for dev_dir in .cargo .rustup .npm; do
             if [ ! -e "$cli_home/$dev_dir" ]; then
                 if [ -d "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/$dev_dir" ]; then
@@ -148,6 +248,35 @@ setup_cli_home() {
                 fi
             fi
         done
+
+        # 软链接 Git, SSH, GitHub CLI 配置，确保在隔离 profile 中运行开发命令与鉴权正常
+        for user_config in .gitconfig .ssh; do
+            if [ ! -e "$cli_home/$user_config" ] && [ -e "$AI_ORIGINAL_HOME/$user_config" ]; then
+                ln -s "$AI_ORIGINAL_HOME/$user_config" "$cli_home/$user_config" 2>/dev/null || true
+            fi
+        done
+        if [ -d "$AI_ORIGINAL_HOME/.config/gh" ] && [ ! -e "$cli_home/.config/gh" ]; then
+            mkdir -p "$cli_home/.config"
+            ln -s "$AI_ORIGINAL_HOME/.config/gh" "$cli_home/.config/gh" 2>/dev/null || true
+        fi
+
+        # GitHub CLI shim，以桥接系统 D-Bus / Keyring 获取 GitHub 凭据，同时保持 agy 自身的 OAuth 隔离
+        mkdir -p "$cli_home/.local/bin"
+        local gh_shim="$cli_home/.local/bin/gh"
+        if [ ! -f "$gh_shim" ]; then
+            cat << 'EOF' > "$gh_shim"
+#!/usr/bin/env bash
+if [ -n "$AI_ORIGINAL_HOME" ] && command -v /usr/bin/gh >/dev/null 2>&1; then
+    HOME="$AI_ORIGINAL_HOME" \
+    DBUS_SESSION_BUS_ADDRESS="${ORIGINAL_DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}" \
+    exec /usr/bin/gh "$@"
+else
+    exec gh "$@"
+fi
+EOF
+            chmod +x "$gh_shim" 2>/dev/null || true
+        fi
+        export PATH="$cli_home/.local/bin:$PATH"
     fi
 }
 

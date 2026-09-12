@@ -78,8 +78,8 @@ ${BOLD}GOOGLE ANTIGRAVITY (AGY) OAUTH:${NC}
   agy 使用 Google OAuth 授权，支持多账号独立登录与完全隔离：
   1. 运行 'ai agya' -> 首次提示 Google 授权链接，在浏览器登录账号 A
   2. 运行 'ai agyb' -> 首次提示 Google 授权链接，在浏览器登录账号 B
-  3. 各账号 profile 完全独立隔离（~/.local/share/ai/agy/<alias>/），同时共享全局 MCP 与 Skills 配置
-     多终端并发运行不同账号互不干扰、永不串号！
+  3. 各账号 OAuth 凭据完全独立隔离，同时全局共享对话记录、工作空间、历史会话、MCP 与 Skills 配置
+     多终端并发运行不同账号互不干扰、永不串号！任意账号均可无缝继续已有工作空间与会话！
   4. 辅助指令：
      ai agya whoami          # 查看当前绑定的 Google 账号
      ai agya login           # 重新发起登录

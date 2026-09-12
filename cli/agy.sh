@@ -103,6 +103,14 @@ if [ -s "$STORED_TOKEN" ] && [ ! -s "$RUNTIME_TOKEN" ]; then
 elif [ -s "$RUNTIME_TOKEN" ] && [ ! -s "$STORED_TOKEN" ]; then
     cp -f "$RUNTIME_TOKEN" "$STORED_TOKEN"
     chmod 600 "$STORED_TOKEN" 2>/dev/null || true
+elif [ -s "$STORED_TOKEN" ] && [ -s "$RUNTIME_TOKEN" ]; then
+    if [ "$STORED_TOKEN" -nt "$RUNTIME_TOKEN" ]; then
+        cp -f "$STORED_TOKEN" "$RUNTIME_TOKEN"
+        chmod 600 "$RUNTIME_TOKEN" 2>/dev/null || true
+    elif [ "$RUNTIME_TOKEN" -nt "$STORED_TOKEN" ]; then
+        cp -f "$RUNTIME_TOKEN" "$STORED_TOKEN"
+        chmod 600 "$STORED_TOKEN" 2>/dev/null || true
+    fi
 fi
 
 if [ -f "$AUTH_STORE_DIR/oauth_creds.json" ] && [ ! -f "$HOME/.gemini/oauth_creds.json" ]; then
@@ -153,6 +161,7 @@ BG_SYNC_PID=$!
 
 # 关键：完全隔离系统级 DBus / Keyring，强制 agy 使用当前 profile/alias 的专属文件存储，
 # 避免 Linux 桌面环境自动读取或覆盖全局唯一的 GNOME Keyring 导致串号。
+export ORIGINAL_DBUS_SESSION_BUS_ADDRESS="${ORIGINAL_DBUS_SESSION_BUS_ADDRESS:-$DBUS_SESSION_BUS_ADDRESS}"
 export DBUS_SESSION_BUS_ADDRESS="disabled"
 export XDG_RUNTIME_DIR="$AUTH_STORE_DIR/run"
 

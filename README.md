@@ -65,27 +65,27 @@ ai codexh              # 使用 ChatGPT OAuth 启动 Codex
 官方 Codex CLI 支持 `codex login` 的 ChatGPT 登录方式；OAuth 模式不需要配置
 `OPENAI_BASE_URL` 或 `OPENAI_API_KEY`。
 
-### Google Antigravity (AGY) OAuth 多账号与并发隔离支持
+### Google Antigravity (AGY) OAuth 多账号、凭据隔离与工作空间共享
 
-系统原生支持 Google Antigravity CLI (`agy`)，通过独立 Profile 隔离与独立 Auth Storage，彻底解决多终端并发运行或切换账号时的凭据冲突与串号问题：
+系统原生支持 Google Antigravity CLI (`agy`)，通过凭据独立存储 + 全局持久化工作空间共享架构，彻底解决多账号并发运行、凭据串号，以及换号会话丢失的问题：
 
-#### 1. 多账号完全独立隔离
-- **`ai agya`**：绑定 Google 账号 A。首次运行提示 Google OAuth 授权链接，浏览器登录账号 A 完成认证。
-- **`ai agyb`**：绑定 Google 账号 B。首次运行提示 Google OAuth 授权链接，浏览器登录账号 B 完成认证。
-- **`ai agyc`** / **`ai agyd`**：分别绑定 Google 账号 C、D。
-- 每个别名拥有专属隔离的运行时 HOME 目录 (`~/.local/share/ai/agy/<alias>/`)，**不同终端同时并发运行多个 AI 互不干扰，换号/退出永不串号！**
+#### 1. 多账号凭据完全独立隔离
+- **`ai agya` ~ `ai agyg`**：支持绑定多个不同 Google 账号（如 A ~ G 账号）。首次运行分别提示对应 OAuth 授权链接，在浏览器登录对应账号即可完成绑定。
+- 每个别名拥有专属隔离的运行时认证目录 (`~/.local/share/ai/agy/auth/<alias>/`) 与独立的 `antigravity-oauth-token`，**不同终端同时并发运行不同账号互不干扰，换号/退出永不串号！**
 
-#### 2. 全局配置与技能自动共享
-虽然各账号的 OAuth 凭据与运行时会话严格隔离，系统会自动打通并共享：
-- 全局 MCP 配置与 Skills/Workflows (`~/.gemini/config` 自动软链接到集中共享目录)。
-- 用户常用开发工具链（如 `cargo`, `rustup`, `npm` 等直接复用）。
-- 既享有团队共享配置的高效，又拥有多账号 100% 的凭据隔离安全。
+#### 2. 全局对话记录与工作空间完全共享
+虽然各账号的 OAuth 凭据严格隔离，但开发上下文、历史会话与系统环境全面互通（通过 `~/.local/share/ai/agy/shared-data/` 自动打通）：
+- **对话历史与产物持久化**：所有别名全局共享 `brain/`（对话记录、思维链与生成的产物）与 `conversations/`（会话状态），无论从哪个账号登录，都能看到并继续（`agy -c` 或 `/resume`）此前的对话。
+- **工作空间索引持久化**：`conversation_summaries.db` 全局共享，多账号无缝继承工作空间项目历史。
+- **输入历史与记忆库**：全局打通 `history.jsonl`、`knowledge/`（智能体积累的知识）与 `annotations/`。
+- **全局 MCP 与 Skills**：`~/.gemini/config` 自动软链接到集中配置目录，Skills 与 MCP 统一维护。
+- **开发工具链与 Git/GitHub 凭据**：自动桥接系统的 `cargo`, `rustup`, `npm`, `.gitconfig`, `.ssh`, `.config/gh`，并在隔离环境下无缝连接系统密钥环进行 GitHub 操作。
 
 #### 3. 辅助命令
 - `ai agya whoami` : 查看 `agya` 当前绑定的 Google 账号邮箱与 HOME 状态
 - `ai agya login` : 重新发起 Google OAuth 认证
 - `ai agya logout` : 退出登录并清除当前别名的凭据
-- `ai reset agya` : 重置 `agya` 的 HOME 空间及凭据
+- `ai reset agya` : 重置 `agya` 的凭据与运行时环境（不会误删全局持久化对话记录）
 
 ---
 
@@ -99,10 +99,7 @@ ai codexh              # 使用 ChatGPT OAuth 启动 Codex
 
 ### CLI 启动
 - `ai agy` (Google Antigravity CLI)
-- `ai agya` (Google OAuth 账号 A)
-- `ai agyb` (Google OAuth 账号 B)
-- `ai agyc` (Google OAuth 账号 C)
-- `ai agyd` (Google OAuth 账号 D)
+- `ai agya` ~ `ai agyg` (Google OAuth 账号 A ~ G)
 - `ai codex`
 - `ai codexh` (ChatGPT OAuth)
 - `ai claude`
