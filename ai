@@ -14,12 +14,14 @@ export AI_ORIGINAL_HOME="${AI_ORIGINAL_HOME:-$HOME}"
 
 # Determine config directory reliably regardless of whether HOME is redirected
 if [ -z "$AI_CONFIG_DIR" ]; then
-    if [ -d "$SCRIPT_DIR/../lib" ] && [ -d "$SCRIPT_DIR/../cli" ]; then
+    if [ -n "$AI_ORIGINAL_HOME" ] && [ -d "$AI_ORIGINAL_HOME/.config/ai" ]; then
+        AI_CONFIG_DIR="$AI_ORIGINAL_HOME/.config/ai"
+    elif [ -d "$HOME/.config/ai" ]; then
+        AI_CONFIG_DIR="$HOME/.config/ai"
+    elif [ -d "$SCRIPT_DIR/../lib" ] && [ -d "$SCRIPT_DIR/../cli" ]; then
         AI_CONFIG_DIR="$(cd "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd)"
     elif [ -d "$SCRIPT_DIR/lib" ] && [ -d "$SCRIPT_DIR/cli" ]; then
         AI_CONFIG_DIR="$SCRIPT_DIR"
-    elif [ -n "$AI_ORIGINAL_HOME" ] && [ -d "$AI_ORIGINAL_HOME/.config/ai" ]; then
-        AI_CONFIG_DIR="$AI_ORIGINAL_HOME/.config/ai"
     else
         AI_CONFIG_DIR="$HOME/.config/ai"
     fi

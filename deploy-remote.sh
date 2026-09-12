@@ -36,8 +36,9 @@ REMOTE_DIR="/root/git/ai-cli-helper"
 echo "[INFO] Syncing repository files to $REMOTE_HOST:$REMOTE_DIR ..."
 ssh -i "$SSH_KEY" -p "$SSH_PORT" "$REMOTE_HOST" "mkdir -p $REMOTE_DIR"
 
-rsync -avz --delete -e "ssh -i $SSH_KEY -p $SSH_PORT" \
+rsync -avz -e "ssh -i $SSH_KEY -p $SSH_PORT" \
     --exclude '.git' \
+    --exclude 'secrets/' \
     "$SRC_DIR/" "$REMOTE_HOST:$REMOTE_DIR/"
 
 echo "[INFO] Running initialization on remote host..."
@@ -45,9 +46,9 @@ ssh -i "$SSH_KEY" -p "$SSH_PORT" "$REMOTE_HOST" "
     cd $REMOTE_DIR
     chmod +x ai ai-init.sh cli/*.sh lib/*.sh
     ./ai-init.sh
-    ./ai init
+    AI_CONFIG_DIR=/root/.config/ai ./ai init
     echo '=== Remote Deployment Verification ==='
-    ./ai doctor || true
+    /root/.config/ai/bin/ai doctor || true
 "
 
 echo "[SUCCESS] Successfully deployed AI CLI Helper to $REMOTE_HOST!"
