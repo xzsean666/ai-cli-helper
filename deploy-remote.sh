@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -e
 
-SSH_KEY="${SSH_KEY:-$HOME/ssh/sean}"
+ORIG_HOME="${AI_ORIGINAL_HOME:-$HOME}"
+if [ -d "/home/sean" ] && [ ! -f "$ORIG_HOME/ssh/sean" ]; then
+    ORIG_HOME="/home/sean"
+fi
+
+SSH_KEY="${SSH_KEY:-$ORIG_HOME/ssh/sean}"
+# Handle leading ~ in SSH_KEY
+SSH_KEY="${SSH_KEY/#\~/$ORIG_HOME}"
+
 SSH_PORT="${SSH_PORT:-22}"
 REMOTE_HOST="${1:-${REMOTE_HOST:-root@192.168.31.110}}"
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +20,11 @@ echo "=== Deploying AI CLI Helper to $REMOTE_HOST ==="
 echo "[INFO] Testing SSH connection to $REMOTE_HOST (Port: $SSH_PORT, Key: $SSH_KEY) ..."
 if ! ssh -i "$SSH_KEY" -p "$SSH_PORT" -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "$REMOTE_HOST" "echo SSH_CONNECTED" >/dev/null 2>&1; then
     echo "[ERROR] Cannot connect to $REMOTE_HOST via SSH."
-    echo "Please check if the host is powered on and reachable on the network."
+    echo "[INFO] Diagnosis:"
+    echo "  - SSH Key: $SSH_KEY (exists: $([ -f "$SSH_KEY" ] && echo 'yes' || echo 'no'))"
+    echo "  - Port: $SSH_PORT"
+    echo "  - Host: $REMOTE_HOST"
+    echo "  - Ping test: $(ping -c 1 -W 1 "${REMOTE_HOST#*@}" >/dev/null 2>&1 && echo 'reachable' || echo 'unreachable / offline')"
     exit 1
 fi
 
