@@ -52,18 +52,69 @@
    ai gemini             # 启动 Gemini
    ```
 
-### ChatGPT OAuth 登录
+### 🧠 OpenAI Codex: API Key 与 ChatGPT OAuth 混合多账号架构
 
-初始化后可以使用内置的 `codexh` 示例，通过浏览器登录 ChatGPT。它使用独立的
-`chatgpt-oauth` profile，不会覆盖 API key provider 的登录状态：
+Codex 支持 **API Key 网关** 与 **ChatGPT OAuth 账号登录** 的混合模式，并引入了与 `agy` 相同规格的凭据独立存储 + 全局会话共享架构：
 
-```bash
-ai codexh login       # 打开浏览器完成 ChatGPT OAuth 登录
-ai codexh              # 使用 ChatGPT OAuth 启动 Codex
-```
+#### 1. 混合认证模式 (Hybrid Auth Mode)
+- **API Key 模式** (如 `codexa`, `codexb`, `codexn`, `codexg`):
+  配置 `OPENAI_BASE_URL`、`OPENAI_MODEL` 与 `OPENAI_API_KEY`，支持第三方转发与自定义网关。
+- **ChatGPT OAuth 模式** (如 `codexh`):
+  登录 ChatGPT Plus / Pro / Team / Enterprise 账号，无需配置 Base URL 或 API Key：
+  ```bash
+  ai codexh login              # 打开浏览器完成 OAuth 授权
+  ai codexh login --device-auth# 终端设备码授权 (适合远程服务器 / SSH 纯终端环境)
+  ai codexh                    # 启动 ChatGPT OAuth 授权会话
+  ```
+- **智能模式感知 (Auto Detection)**:
+  若未强制指定 `AI_AUTH_MODE`，系统将智能判断当前 alias 是优先使用 API Key 还是已登录的 ChatGPT OAuth 凭据，永不误清或串号。
 
-官方 Codex CLI 支持 `codex login` 的 ChatGPT 登录方式；OAuth 模式不需要配置
-`OPENAI_BASE_URL` 或 `OPENAI_API_KEY`。
+#### 2. 多账号凭据隔离与防止串号
+- 每个别名拥有专属隔离的认证目录 (`~/.local/share/ai/codex/auth/<alias>/auth.json`) 与 `email.txt`。
+- 换号、退出或在多个终端并发运行不同账号与 API 网关完全互不干扰。
+
+#### 3. 会话历史与续接 (通过 AI_HOME_PROFILE)
+- **全局共享模式 (Shared, 默认推荐)**:
+  所有别名在 `shared-team` 下全局共享 `rollouts/`（会话记录与思维转储）、`history.jsonl`（交互历史）与 SQLite 状态数据库。任意别名（即使在 API 模式与 ChatGPT 模式之间切换）均可直接通过 `codex resume --last` 或 `codex resume <id>` 继续此前对话！
+- **完全私有隔离模式 (Isolated)**:
+  设置 `AI_HOME_PROFILE="isolated"` 时，该别名运行在完全私有的独立环境中。
+
+#### 4. 辅助命令
+- `ai codex whoami` / `ai codex status` : 查看当前绑定的 ChatGPT 账号邮箱、API 状态、Profile 与数据共享模式
+- `ai codex login [--device-auth]` : 发起登录（支持设备码模式）
+- `ai codex logout` : 退出当前别名的登录并清除凭据
+- `ai reset codex` : 重置该别名的运行时环境（不影响共享的历史会话）
+- `ai env codex` : 查看详细运行环境与认证状态
+
+---
+
+### 🎭 Claude Code: API Key 与 官方 OAuth 订阅模式
+
+系统原生优化 Claude Code CLI，支持第三方 API 与官方订阅授权共存：
+
+#### 1. 双模式支持
+- **API Key 模式** (如 `claude`, `claudeb`):
+  配置 `ANTHROPIC_BASE_URL` 与 `ANTHROPIC_API_KEY`，内置 HTTPS 校验与 `--dangerously-skip-permissions --no-chrome` 快速启动。
+- **官方 OAuth 订阅模式** (如 `claudeh`):
+  支持通过官方授权直接使用 Claude Pro / Team 订阅：
+  ```bash
+  ai claudeh login             # 浏览器完成官方授权登录
+  ai claudeh                   # 使用官方订阅启动 Claude Code
+  ```
+
+#### 2. 多账号凭据隔离与项目会话共享
+- 凭据隔离存储于 `~/.local/share/ai/claude/auth/<alias>/`，多账号并发互不串号。
+- 全局共享模式 (`AI_HOME_PROFILE="shared-team"`) 下自动共享 `projects/`、`sessions/`、`todos/` 与 `history.jsonl`，任意别名均可 `claude --resume` 无缝恢复项目会话。
+- 自动桥接开发工具链（`cargo`, `rustup`, `npm`, `.gitconfig`, `.ssh`, `.config/gh`）。
+
+#### 3. 辅助命令
+- `ai claude whoami` / `ai claude status` : 查看当前账号邮箱、认证方式与环境配置
+- `ai claude login` : 发起官方授权登录
+- `ai claude logout` : 退出登录
+- `ai reset claude` : 重置该别名运行环境
+- `ai env claude` : 查看当前环境变量
+
+---
 
 ### Google Antigravity (AGY) OAuth 多账号、凭据隔离与工作空间共享
 

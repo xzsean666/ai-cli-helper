@@ -134,11 +134,10 @@ setup_cli_home() {
     export AI_DATA_POOL="$pool_name"
 
     local cli_home
-    if [ "$base_cli" = "agy" ]; then
-        # agy CLI 拥有固定的 OAuth 凭据路径 ($HOME/.gemini/antigravity-cli/antigravity-oauth-token)。
-        # 为了杜绝多账号与多终端并发运行时凭据相互覆盖，agy 的 HOME 必须按 alias 独立隔离！
-        # 而对话历史、知识库、工作空间与记忆则根据 data_mode 决定软链接到共享池还是保持独立。
-        cli_home="$AI_ORIGINAL_HOME/.local/share/ai/agy/${alias_name}"
+    if [ "$base_cli" = "agy" ] || [ "$base_cli" = "codex" ] || [ "$base_cli" = "claude" ]; then
+        # agy, codex, claude 均支持多账号独立凭据与运行时隔离，
+        # 而历史会话与数据根据 data_mode 决定软链接到共享池还是保持独立。
+        cli_home="$AI_ORIGINAL_HOME/.local/share/ai/${base_cli}/${alias_name}"
     else
         local home_profile
         if [ "$data_mode" = "isolated" ]; then
@@ -154,11 +153,12 @@ setup_cli_home() {
     mkdir -p "$cli_home"
     export HOME="$cli_home"
 
-    # Keep Codex auth/config state inside the selected profile even when the
-    # caller already exported CODEX_HOME in the parent shell.
     if [ "$base_cli" = "codex" ]; then
         export CODEX_HOME="$cli_home/.codex"
         mkdir -p "$CODEX_HOME"
+    elif [ "$base_cli" = "claude" ]; then
+        export CLAUDE_CONFIG_DIR="$cli_home/.claude"
+        mkdir -p "$CLAUDE_CONFIG_DIR"
     fi
 
     # 针对 agy (Google Antigravity CLI)，根据 data_mode 控制数据持久化、共享与隔离
@@ -345,8 +345,169 @@ if os.path.isfile(src_db) and os.path.isfile(dst_db):
                 cp "$target_pool_dir/installation_id" "$profile_app_dir/installation_id" 2>/dev/null || true
             fi
         fi
+    fi
 
-        # 5. 共享常用开发工具链（如 cargo, rustup, npm）及 Git / SSH / GitHub CLI 配置
+    # 针对 codex，根据 data_mode 控制会话记录、历史与状态共享
+    if [ "$base_cli" = "codex" ]; then
+        local global_shared_codex="$AI_ORIGINAL_HOME/.local/share/ai/codex/shared-data"
+        mkdir -p "$global_shared_codex"/{rollouts,archived_rollouts,sessions}
+
+        local target_pool_dir
+        if [ "$data_mode" = "shared" ]; then
+            target_pool_dir="$global_shared_codex"
+        elif [ "$data_mode" = "group" ]; then
+            target_pool_dir="$AI_ORIGINAL_HOME/.local/share/ai/codex/pools/${pool_name}"
+            mkdir -p "$target_pool_dir"/{rollouts,archived_rollouts,sessions}
+        fi
+
+        if [ "$data_mode" = "isolated" ]; then
+            # === 完全私有隔离模式 (Isolated Mode) ===
+            for item in rollouts archived_rollouts sessions; do
+                if [ -L "$CODEX_HOME/$item" ]; then
+                    rm -f "$CODEX_HOME/$item"
+                fi
+                mkdir -p "$CODEX_HOME/$item"
+            done
+            if [ -L "$CODEX_HOME/history.jsonl" ]; then
+                rm -f "$CODEX_HOME/history.jsonl"
+                touch "$CODEX_HOME/history.jsonl"
+            else
+                [ -f "$CODEX_HOME/history.jsonl" ] || touch "$CODEX_HOME/history.jsonl"
+            fi
+            for db in "$CODEX_HOME"/*.sqlite; do
+                [ -L "$db" ] && rm -f "$db"
+            done
+        else
+            # === 共享模式 (Shared 全局 shared-data 或 Group pools/<name>) ===
+            for item in rollouts archived_rollouts sessions; do
+                if [ -L "$CODEX_HOME/$item" ]; then
+                    local cur_link
+                    cur_link=$(readlink "$CODEX_HOME/$item" 2>/dev/null || true)
+                    if [ "$cur_link" != "$target_pool_dir/$item" ]; then
+                        rm -f "$CODEX_HOME/$item"
+                        ln -sfn "$target_pool_dir/$item" "$CODEX_HOME/$item" 2>/dev/null || true
+                    fi
+                elif [ -d "$CODEX_HOME/$item" ]; then
+                    cp -rn "$CODEX_HOME/$item/"* "$target_pool_dir/$item/" 2>/dev/null || true
+                    rm -rf "$CODEX_HOME/$item" 2>/dev/null
+                    ln -sfn "$target_pool_dir/$item" "$CODEX_HOME/$item" 2>/dev/null || true
+                else
+                    rm -f "$CODEX_HOME/$item" 2>/dev/null || true
+                    ln -sfn "$target_pool_dir/$item" "$CODEX_HOME/$item" 2>/dev/null || true
+                fi
+            done
+
+            # history.jsonl
+            [ -f "$target_pool_dir/history.jsonl" ] || touch "$target_pool_dir/history.jsonl"
+            if [ -L "$CODEX_HOME/history.jsonl" ]; then
+                local cur_h_link
+                cur_h_link=$(readlink "$CODEX_HOME/history.jsonl" 2>/dev/null || true)
+                if [ "$cur_h_link" != "$target_pool_dir/history.jsonl" ]; then
+                    rm -f "$CODEX_HOME/history.jsonl"
+                    ln -sf "$target_pool_dir/history.jsonl" "$CODEX_HOME/history.jsonl" 2>/dev/null || true
+                fi
+            elif [ -f "$CODEX_HOME/history.jsonl" ]; then
+                cat "$CODEX_HOME/history.jsonl" >> "$target_pool_dir/history.jsonl" 2>/dev/null || true
+                rm -f "$CODEX_HOME/history.jsonl" 2>/dev/null
+                ln -sf "$target_pool_dir/history.jsonl" "$CODEX_HOME/history.jsonl" 2>/dev/null || true
+            else
+                rm -f "$CODEX_HOME/history.jsonl" 2>/dev/null
+                ln -sf "$target_pool_dir/history.jsonl" "$CODEX_HOME/history.jsonl" 2>/dev/null || true
+            fi
+
+            # 跨 profile 共享 SQLite 状态与数据库 (state_*.sqlite, logs_*.sqlite, goals_*.sqlite, memories_*.sqlite, queue_*.sqlite, thread_history_*.sqlite)
+            for db_pattern in "state_*.sqlite" "logs_*.sqlite" "goals_*.sqlite" "memories_*.sqlite" "queue_*.sqlite" "thread_history_*.sqlite"; do
+                for pool_db in "$target_pool_dir"/$db_pattern; do
+                    [ -f "$pool_db" ] || continue
+                    local db_base
+                    db_base=$(basename "$pool_db")
+                    if [ ! -e "$CODEX_HOME/$db_base" ] || [ -L "$CODEX_HOME/$db_base" ]; then
+                        ln -sf "$pool_db" "$CODEX_HOME/$db_base" 2>/dev/null || true
+                    fi
+                done
+                for local_db in "$CODEX_HOME"/$db_pattern; do
+                    [ -f "$local_db" ] || continue
+                    [ -L "$local_db" ] && continue
+                    local db_base
+                    db_base=$(basename "$local_db")
+                    if [ ! -f "$target_pool_dir/$db_base" ]; then
+                        mv "$local_db" "$target_pool_dir/$db_base" 2>/dev/null || true
+                        ln -sf "$target_pool_dir/$db_base" "$CODEX_HOME/$db_base" 2>/dev/null || true
+                    fi
+                done
+            done
+        fi
+    fi
+
+    # 针对 claude，根据 data_mode 控制项目、对话与会话共享
+    if [ "$base_cli" = "claude" ]; then
+        local global_shared_claude="$AI_ORIGINAL_HOME/.local/share/ai/claude/shared-data"
+        mkdir -p "$global_shared_claude"/{projects,sessions,todos,file-history,shell-snapshots,backups}
+
+        local target_pool_dir
+        if [ "$data_mode" = "shared" ]; then
+            target_pool_dir="$global_shared_claude"
+        elif [ "$data_mode" = "group" ]; then
+            target_pool_dir="$AI_ORIGINAL_HOME/.local/share/ai/claude/pools/${pool_name}"
+            mkdir -p "$target_pool_dir"/{projects,sessions,todos,file-history,shell-snapshots,backups}
+        fi
+
+        if [ "$data_mode" = "isolated" ]; then
+            # === 完全私有隔离模式 (Isolated Mode) ===
+            for item in projects sessions todos file-history shell-snapshots backups; do
+                if [ -L "$CLAUDE_CONFIG_DIR/$item" ]; then
+                    rm -f "$CLAUDE_CONFIG_DIR/$item"
+                fi
+                mkdir -p "$CLAUDE_CONFIG_DIR/$item"
+            done
+            if [ -L "$CLAUDE_CONFIG_DIR/history.jsonl" ]; then
+                rm -f "$CLAUDE_CONFIG_DIR/history.jsonl"
+                touch "$CLAUDE_CONFIG_DIR/history.jsonl"
+            else
+                [ -f "$CLAUDE_CONFIG_DIR/history.jsonl" ] || touch "$CLAUDE_CONFIG_DIR/history.jsonl"
+            fi
+        else
+            # === 共享模式 (Shared 全局 shared-data 或 Group pools/<name>) ===
+            for item in projects sessions todos file-history shell-snapshots backups; do
+                if [ -L "$CLAUDE_CONFIG_DIR/$item" ]; then
+                    local cur_link
+                    cur_link=$(readlink "$CLAUDE_CONFIG_DIR/$item" 2>/dev/null || true)
+                    if [ "$cur_link" != "$target_pool_dir/$item" ]; then
+                        rm -f "$CLAUDE_CONFIG_DIR/$item"
+                        ln -sfn "$target_pool_dir/$item" "$CLAUDE_CONFIG_DIR/$item" 2>/dev/null || true
+                    fi
+                elif [ -d "$CLAUDE_CONFIG_DIR/$item" ]; then
+                    cp -rn "$CLAUDE_CONFIG_DIR/$item/"* "$target_pool_dir/$item/" 2>/dev/null || true
+                    rm -rf "$CLAUDE_CONFIG_DIR/$item" 2>/dev/null
+                    ln -sfn "$target_pool_dir/$item" "$CLAUDE_CONFIG_DIR/$item" 2>/dev/null || true
+                else
+                    rm -f "$CLAUDE_CONFIG_DIR/$item" 2>/dev/null || true
+                    ln -sfn "$target_pool_dir/$item" "$CLAUDE_CONFIG_DIR/$item" 2>/dev/null || true
+                fi
+            done
+
+            # history.jsonl
+            [ -f "$target_pool_dir/history.jsonl" ] || touch "$target_pool_dir/history.jsonl"
+            if [ -L "$CLAUDE_CONFIG_DIR/history.jsonl" ]; then
+                local cur_h_link
+                cur_h_link=$(readlink "$CLAUDE_CONFIG_DIR/history.jsonl" 2>/dev/null || true)
+                if [ "$cur_h_link" != "$target_pool_dir/history.jsonl" ]; then
+                    rm -f "$CLAUDE_CONFIG_DIR/history.jsonl"
+                    ln -sf "$target_pool_dir/history.jsonl" "$CLAUDE_CONFIG_DIR/history.jsonl" 2>/dev/null || true
+                fi
+            elif [ -f "$CLAUDE_CONFIG_DIR/history.jsonl" ]; then
+                cat "$CLAUDE_CONFIG_DIR/history.jsonl" >> "$target_pool_dir/history.jsonl" 2>/dev/null || true
+                rm -f "$CLAUDE_CONFIG_DIR/history.jsonl" 2>/dev/null
+                ln -sf "$target_pool_dir/history.jsonl" "$CLAUDE_CONFIG_DIR/history.jsonl" 2>/dev/null || true
+            else
+                rm -f "$CLAUDE_CONFIG_DIR/history.jsonl" 2>/dev/null
+                ln -sf "$target_pool_dir/history.jsonl" "$CLAUDE_CONFIG_DIR/history.jsonl" 2>/dev/null || true
+            fi
+        fi
+    fi
+
+    # 共享常用开发工具链（如 cargo, rustup, npm）及 Git / SSH / GitHub CLI 配置
+    if [ "$base_cli" = "agy" ] || [ "$base_cli" = "codex" ] || [ "$base_cli" = "claude" ]; then
         for dev_dir in .cargo .rustup .npm; do
             if [ ! -e "$cli_home/$dev_dir" ]; then
                 if [ -d "$AI_ORIGINAL_HOME/.local/share/ai/agy/shared-team/$dev_dir" ]; then
@@ -368,7 +529,7 @@ if os.path.isfile(src_db) and os.path.isfile(dst_db):
             ln -s "$AI_ORIGINAL_HOME/.config/gh" "$cli_home/.config/gh" 2>/dev/null || true
         fi
 
-        # GitHub CLI shim，以桥接系统 D-Bus / Keyring 获取 GitHub 凭据，同时保持 agy 自身的 OAuth 隔离
+        # GitHub CLI shim，以桥接系统 D-Bus / Keyring 获取 GitHub 凭据，同时保持 CLI 自身的 OAuth 隔离
         mkdir -p "$cli_home/.local/bin"
         local gh_shim="$cli_home/.local/bin/gh"
         if [ ! -f "$gh_shim" ]; then
@@ -472,6 +633,110 @@ sys.exit(1)
         else
             echo -e "${BOLD}Google Account:${NC}  (not logged in - run: ai $target login)"
         fi
+    elif [ "$base_cli" = "codex" ]; then
+        local auth_dir="$orig_home/.local/share/ai/codex/auth/${target}"
+        local profile_auth="$orig_home/.local/share/ai/codex/${target}/.codex/auth.json"
+        local auth_file="$auth_dir/auth.json"
+        [ ! -s "$auth_file" ] && [ -s "$profile_auth" ] && auth_file="$profile_auth"
+        local email_file="$auth_dir/email.txt"
+        local email=""
+
+        if [ -s "$auth_file" ]; then
+            email=$(python3 -c "
+import json, base64, sys
+try:
+    with open('$auth_file') as f: data = json.load(f)
+    tokens = data.get('tokens', {}) if isinstance(data, dict) else {}
+    id_token = tokens.get('id_token') or data.get('id_token')
+    if id_token and isinstance(id_token, str) and '.' in id_token:
+        parts = id_token.split('.')
+        if len(parts) >= 2:
+            payload = parts[1] + '=' * ((4 - len(parts[1]) % 4) % 4)
+            claims = json.loads(base64.urlsafe_b64decode(payload.encode()))
+            em = claims.get('email') or claims.get('https://api.openai.com/profile', {}).get('email')
+            if em: print(em); sys.exit(0)
+    em = data.get('email') or data.get('user', {}).get('email')
+    if em: print(em); sys.exit(0)
+except Exception: pass
+sys.exit(1)
+" 2>/dev/null)
+            if [ -n "$email" ]; then
+                [ -d "$auth_dir" ] && echo "$email" > "$email_file" 2>/dev/null
+            fi
+        fi
+        [ -z "$email" ] && [ -s "$email_file" ] && email="$(cat "$email_file" 2>/dev/null)"
+
+        local is_chatgpt=false
+        if [ "$AI_AUTH_MODE" = "chatgpt" ] || [ "$AI_AUTH_MODE" = "oauth" ]; then
+            is_chatgpt=true
+        elif [ -s "$auth_file" ]; then
+            local chk_mode
+            chk_mode=$(python3 -c "
+import json
+try:
+    with open('$auth_file') as f: d = json.load(f)
+    if d.get('auth_mode') == 'chatgpt' or ('tokens' in d and d['tokens'].get('access_token')):
+        print('chatgpt')
+except Exception: pass
+" 2>/dev/null)
+            [ "$chk_mode" = "chatgpt" ] && is_chatgpt=true
+        fi
+
+        if [ "$is_chatgpt" = true ]; then
+            if [ -n "$email" ]; then
+                echo -e "${BOLD}ChatGPT Account:${NC} $email"
+            elif [ -s "$auth_file" ]; then
+                echo -e "${BOLD}ChatGPT Account:${NC} (authenticated)"
+            else
+                echo -e "${BOLD}ChatGPT Account:${NC} (not logged in - run: ai $target login)"
+            fi
+        else
+            echo -e "${BOLD}Codex Mode:${NC}       API Key"
+        fi
+    elif [ "$base_cli" = "claude" ]; then
+        local auth_dir="$orig_home/.local/share/ai/claude/auth/${target}"
+        local profile_creds="$orig_home/.local/share/ai/claude/${target}/.claude/.credentials.json"
+        local creds_file="$auth_dir/.credentials.json"
+        [ ! -s "$creds_file" ] && [ -s "$profile_creds" ] && creds_file="$profile_creds"
+        local profile_cfg="$orig_home/.local/share/ai/claude/${target}/.claude/.claude.json"
+        local cfg_file="$auth_dir/.claude.json"
+        [ ! -s "$cfg_file" ] && [ -s "$profile_cfg" ] && cfg_file="$profile_cfg"
+        local email_file="$auth_dir/email.txt"
+        local email=""
+
+        if [ -s "$creds_file" ] || [ -s "$cfg_file" ]; then
+            email=$(python3 -c "
+import json, sys
+for fpath in ('$creds_file', '$cfg_file'):
+    if not fpath: continue
+    try:
+        with open(fpath) as f: d = json.load(f)
+        for k in ('account_email', 'email', 'accountEmail', 'emailAddress'):
+            if d.get(k): print(d[k]); sys.exit(0)
+        for sub in ('account', 'profile', 'oauth', 'user'):
+            if isinstance(d.get(sub), dict):
+                for k in ('account_email', 'email', 'accountEmail', 'emailAddress'):
+                    if d[sub].get(k): print(d[sub][k]); sys.exit(0)
+    except Exception: pass
+sys.exit(1)
+" 2>/dev/null)
+            if [ -n "$email" ]; then
+                [ -d "$auth_dir" ] && echo "$email" > "$email_file" 2>/dev/null
+            fi
+        fi
+        [ -z "$email" ] && [ -s "$email_file" ] && email="$(cat "$email_file" 2>/dev/null)"
+
+        if [ "$AI_AUTH_MODE" = "oauth" ] || [ "$AI_AUTH_MODE" = "claudeai" ] || [ -s "$creds_file" ]; then
+            if [ -n "$email" ]; then
+                echo -e "${BOLD}Claude Account:${NC}  $email"
+            elif [ -s "$creds_file" ]; then
+                echo -e "${BOLD}Claude Account:${NC}  (authenticated)"
+            else
+                echo -e "${BOLD}Claude Account:${NC}  (not logged in - run: ai $target login)"
+            fi
+        else
+            echo -e "${BOLD}Claude Mode:${NC}      API Key"
+        fi
     fi
 
     echo -e "${BOLD}Environment Variables:${NC}"
@@ -520,8 +785,8 @@ reset_cli_home() {
 
     local orig_home="${AI_ORIGINAL_HOME:-$HOME}"
     local cli_home
-    if [ "$base_cli" = "agy" ]; then
-        cli_home="$orig_home/.local/share/ai/agy/${target}"
+    if [ "$base_cli" = "agy" ] || [ "$base_cli" = "codex" ] || [ "$base_cli" = "claude" ]; then
+        cli_home="$orig_home/.local/share/ai/${base_cli}/${target}"
     else
         local home_profile="${custom_profile:-${AI_HOME_PROFILE:-$target}}"
         cli_home="$orig_home/.local/share/ai/${base_cli}/${home_profile}"
@@ -535,12 +800,12 @@ reset_cli_home() {
         warn "Profile directory does not exist: $cli_home"
     fi
 
-    if [ "$base_cli" = "agy" ]; then
-        local auth_dir="$orig_home/.local/share/ai/agy/auth/$target"
+    if [ "$base_cli" = "agy" ] || [ "$base_cli" = "codex" ] || [ "$base_cli" = "claude" ]; then
+        local auth_dir="$orig_home/.local/share/ai/${base_cli}/auth/$target"
         if [ -d "$auth_dir" ]; then
-            info "Resetting OAuth credentials for agy alias '${target}' ..."
+            info "Resetting stored credentials for ${base_cli} alias '${target}' ..."
             rm -rf "$auth_dir"
-            success "OAuth credentials reset: Removed $auth_dir"
+            success "Stored credentials reset: Removed $auth_dir"
         fi
     fi
 }

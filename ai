@@ -88,11 +88,34 @@ ${BOLD}GOOGLE ANTIGRAVITY (AGY) OAUTH:${NC}
      ai agya logout          # 退出当前账号并清除凭据
      ai reset agya           # 重置该别名的 HOME 与 Auth 状态
 
-${BOLD}CHATGPT OAUTH EXAMPLE:${NC}
-  codexh 使用独立 profile 保存 ChatGPT OAuth 登录状态：
-  1. ai codexh login
-  2. 在浏览器完成 ChatGPT 登录
-  3. ai codexh
+${BOLD}CODEX (API KEY / CHATGPT OAUTH 混合模式):${NC}
+  Codex 支持 API Key 网关与 ChatGPT OAuth 账号登录的混合与多账号并发模式：
+  1. API 模式 (如 codexa, codexb): 配置 OPENAI_BASE_URL 与 secrets/<alias>.sh 中的 API Key
+  2. ChatGPT OAuth 模式 (如 codexh):
+     ai codexh login              # 浏览器完成 ChatGPT OAuth 登录
+     ai codexh login --device-auth# 终端设备码登录 (适合无桌面/远程 SSH 环境)
+     ai codexh                    # 启动 ChatGPT OAuth 授权会话
+  3. 各账号凭据独立存储 (~/.local/share/ai/codex/auth/<alias>/)，多终端并发运行永不串号
+  4. 支持统一工作空间模式 (AI_HOME_PROFILE):
+     在 shared-team 模式下，各账号自动共享历史会话与 rollouts，任意账号均可 'codex resume' 续接！
+  5. 辅助指令：
+     ai codex whoami              # 查看当前绑定的 ChatGPT 账号或 API Key 状态
+     ai codex logout              # 退出当前账号并清除凭据
+     ai reset codex               # 重置该别名的运行时与凭据
+
+${BOLD}CLAUDE CODE (API KEY / OAUTH 订阅模式):${NC}
+  Claude Code 支持第三方 API Key 网关与官方 Claude 订阅 (OAuth) 模式：
+  1. API 模式 (如 claude, claudeb): 配置 ANTHROPIC_BASE_URL 与 API Key
+  2. 官方 OAuth 模式 (如 claudeh):
+     ai claudeh login             # 浏览器完成 Claude 官方授权登录
+     ai claudeh                   # 使用官方账号启动 Claude Code
+  3. 各账号凭据独立存储 (~/.local/share/ai/claude/auth/<alias>/)
+  4. 共享项目对话 (AI_HOME_PROFILE="shared-team")：自动共享 projects、sessions 与 history.jsonl
+  5. 辅助指令：
+     ai claude whoami             # 查看当前账号、订阅与 API 状态
+     ai claude logout             # 退出登录
+     ai reset claude              # 重置该别名环境
+
 
 ${BOLD}SYSTEM COMMANDS:${NC}
   ai doctor                  Run diagnostic check
