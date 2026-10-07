@@ -44,8 +44,8 @@ rsync -avz -e "ssh -i $SSH_KEY -p $SSH_PORT" \
 echo "[INFO] Running initialization on remote host..."
 ssh -i "$SSH_KEY" -p "$SSH_PORT" "$REMOTE_HOST" "
     cd $REMOTE_DIR
-    chmod +x ai ai-init.sh cli/*.sh lib/*.sh
-    ./ai-init.sh
+    chmod +x ai install.sh env.sh cli/*.sh lib/*.sh
+    ./install.sh
     AI_CONFIG_DIR=/root/.config/ai ./ai init
     echo '=== Remote Deployment Verification ==='
     /root/.config/ai/bin/ai doctor || true

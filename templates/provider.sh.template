@@ -1,14 +1,27 @@
-# Provider configuration template
+# Provider configuration template for AI CLI Helper
 export AI_PROVIDER_NAME="custom"
 
-# OpenAI Settings
+# 认证模式 (Auth Mode):
+# - "api-key" (默认): 使用下方各平台的 BASE_URL 与 API Key
+# - "chatgpt": OpenAI Codex 的官方 ChatGPT OAuth 订阅模式 (通过浏览器或设备码登录)
+# - "google-oauth": Google Antigravity CLI 的 Google OAuth 模式
+# - "oauth": Claude Code 的官方订阅模式
+# export AI_AUTH_MODE="api-key"
+
+# 数据共享模式 (支持 shared-team / isolated / 自定义分组):
+# - "shared-team" 或 "shared": 跨账号/跨别名共享对话记录与工作空间 (默认推荐)
+# - "isolated" 或 "private": 完全独立私有空间
+export AI_HOME_PROFILE="${AI_HOME_PROFILE:-shared-team}"
+
+# === API Key 模式配置 ===
+# OpenAI Settings (适用于 codex / openai)
 export OPENAI_BASE_URL="https://api.openai.com/v1"
 export OPENAI_MODEL="gpt-4o"
 
-# Anthropic / Claude Settings
+# Anthropic / Claude Settings (适用于 claude)
 export ANTHROPIC_BASE_URL="https://api.anthropic.com"
 export ANTHROPIC_MODEL="claude-3-5-sonnet-20241022"
 
-# Gemini Settings
+# Gemini Settings (适用于 gemini)
 export GEMINI_BASE_URL="https://generativelanguage.googleapis.com"
 export GEMINI_MODEL="gemini-2.5-flash"

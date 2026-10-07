@@ -77,13 +77,7 @@ detect_auth_mode() {
     esac
 
     # In auto mode:
-    # 1. If OPENAI_API_KEY is explicitly set and non-empty, prioritize API key mode
-    if [ -n "$OPENAI_API_KEY" ]; then
-        echo "apikey"
-        return 0
-    fi
-
-    # 2. Check if auth.json has stored ChatGPT tokens
+    # 1. Check if auth.json already has stored ChatGPT OAuth tokens
     for check_file in "$RUNTIME_AUTH" "$STORED_AUTH"; do
         if [ -s "$check_file" ]; then
             local mode
@@ -104,6 +98,12 @@ except Exception: pass
             fi
         fi
     done
+
+    # 2. If OPENAI_API_KEY is explicitly set and non-empty, prioritize API key mode
+    if [ -n "$OPENAI_API_KEY" ]; then
+        echo "apikey"
+        return 0
+    fi
 
     # 3. If OPENAI_BASE_URL is set, assume API mode
     if [ -n "$OPENAI_BASE_URL" ]; then
@@ -245,6 +245,31 @@ sync_codex_auth_back() {
         local email
         email=$(get_codex_email "$RUNTIME_AUTH")
         [ -n "$email" ] && echo "$email" > "$STORED_EMAIL_FILE" 2>/dev/null
+    fi
+
+    # Sync any new SQLite databases back to shared pool
+    local raw_prof="${AI_HOME_PROFILE:-shared-team}"
+    local prof_lower
+    prof_lower=$(echo "$raw_prof" | tr '[:upper:]' '[:lower:]')
+    if [ "$prof_lower" != "isolated" ] && [ "$prof_lower" != "private" ] && [ "$AI_SHARE_DATA" != "false" ]; then
+        local pool_dir="$ORIG_HOME/.local/share/ai/codex/shared-data"
+        if [ "$prof_lower" != "shared" ] && [ "$prof_lower" != "shared-team" ] && [ "$prof_lower" != "common" ] && [ "$prof_lower" != "team" ]; then
+            pool_dir="$ORIG_HOME/.local/share/ai/codex/pools/$raw_prof"
+        fi
+        if [ -d "$pool_dir" ]; then
+            for db_pattern in "state_*.sqlite" "logs_*.sqlite" "goals_*.sqlite" "memories_*.sqlite" "queue_*.sqlite" "thread_history_*.sqlite"; do
+                for local_db in "$CODEX_HOME"/$db_pattern; do
+                    [ -f "$local_db" ] || continue
+                    [ -L "$local_db" ] && continue
+                    local db_base
+                    db_base=$(basename "$local_db")
+                    if [ ! -f "$pool_dir/$db_base" ]; then
+                        mv "$local_db" "$pool_dir/$db_base" 2>/dev/null || true
+                        ln -sf "$pool_dir/$db_base" "$CODEX_HOME/$db_base" 2>/dev/null || true
+                    fi
+                done
+            done
+        fi
     fi
 }
 trap sync_codex_auth_back EXIT INT TERM HUP

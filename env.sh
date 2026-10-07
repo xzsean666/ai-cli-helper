@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# Quick installation & environment setup script for AI CLI Helper
-# Compatible with Linux (bash) and macOS (zsh / bash)
+# Environment initialization script for AI CLI Helper
+# Sourced by ~/.bashrc or ~/.zshrc to configure PATH and shell environment.
 
 AI_CONFIG_DIR="${AI_CONFIG_DIR:-${AI_ORIGINAL_HOME:-$HOME}/.config/ai}"
 
@@ -13,7 +13,7 @@ if [ -d "$AI_CONFIG_DIR/bin" ]; then
     esac
 fi
 
-# Ensure user's local bin directory is in PATH (common location for agy/claude/uv)
+# Ensure user's local bin directory is in PATH (common location for agy/claude/uv/pnpm)
 USER_HOME="${AI_ORIGINAL_HOME:-$HOME}"
 if [ -d "$USER_HOME/.local/bin" ]; then
     case ":$PATH:" in
@@ -34,14 +34,9 @@ elif [ -n "$BASH_VERSION" ]; then
     fi
 fi
 
-# If executed directly (not sourced by shell), run setup
+# If executed directly (not sourced by shell), run installation/setup
 if [ "$IS_SOURCED" -eq 0 ]; then
-    if [ -n "$ZSH_VERSION" ]; then
-        SOURCE="${(%):-%x}"
-    else
-        SOURCE="${BASH_SOURCE[0]:-$0}"
-    fi
-
+    SOURCE="${BASH_SOURCE[0]:-$0}"
     while [ -h "$SOURCE" ]; do
       DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
       SOURCE="$(readlink "$SOURCE")"
@@ -49,8 +44,9 @@ if [ "$IS_SOURCED" -eq 0 ]; then
     done
     SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
 
-    chmod +x "$SCRIPT_DIR/ai" "$SCRIPT_DIR/ai-init.sh" "$SCRIPT_DIR/cli/"*.sh "$SCRIPT_DIR/lib/"*.sh 2>/dev/null || true
-
-    echo "=== Initializing AI CLI Helper ==="
-    "$SCRIPT_DIR/ai" init
+    if [ -f "$SCRIPT_DIR/install.sh" ]; then
+        exec "$SCRIPT_DIR/install.sh" "$@"
+    elif [ -f "$AI_CONFIG_DIR/bin/ai" ]; then
+        exec "$AI_CONFIG_DIR/bin/ai" init "$@"
+    fi
 fi

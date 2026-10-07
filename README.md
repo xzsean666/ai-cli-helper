@@ -24,11 +24,11 @@
    cd ai-cli-helper
    ```
 
-2. **运行一键初始化脚本**:
+2. **运行一键安装 / 更新脚本**:
    ```bash
-   ./ai-init.sh
+   ./install.sh
    ```
-   *初始化会自动将 `~/.config/ai/bin` 加入 PATH，并自动在 `~/.bashrc` (或 `~/.zshrc`) 中写入初始化代码。*
+   *安装会自动将 `~/.config/ai/bin` 加入 PATH，并自动在 `~/.bashrc` (或 `~/.zshrc`) 中引入 `~/.config/ai/env.sh`。*
 
 3. **重新加载终端配置**:
    ```bash
