@@ -14,9 +14,14 @@ export AI_PROVIDER_NAME="custom"
 export AI_HOME_PROFILE="${AI_HOME_PROFILE:-shared-team}"
 
 # === API Key 模式配置 ===
-# OpenAI Settings (适用于 codex / openai)
+# OpenAI / Codex Settings (适用于 codex / openai)
 export OPENAI_BASE_URL="https://api.openai.com/v1"
-export OPENAI_MODEL="gpt-4o"
+export OPENAI_MODEL="gpt-5.6-terra"
+
+# Codex 模型目录 (支持自动同步或手动指定):
+# 系统首次启动此别名时，会自动基于 OPENAI_BASE_URL 同步可用模型目录至 ~/.local/share/ai/codex/catalogs/<alias>.json
+# 若网关未开放 /models 查询接口，也可在此手动指定 /model 菜单中可见的模型（逗号分隔）：
+# export CODEX_MODELS="gpt-6.1-sol,gpt-6-sol,gpt-6-astra,gpt-5.6-terra,gpt-5.6-sol,gpt-5.5"
 
 # Anthropic / Claude Settings (适用于 claude)
 export ANTHROPIC_BASE_URL="https://api.anthropic.com"

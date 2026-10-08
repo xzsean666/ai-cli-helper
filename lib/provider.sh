@@ -52,6 +52,7 @@ add_provider() {
     else
         if [ -f "$AI_CONFIG_DIR/templates/provider.sh.template" ]; then
             cp "$AI_CONFIG_DIR/templates/provider.sh.template" "$target_provider"
+            sed -i "s/AI_PROVIDER_NAME=\"custom\"/AI_PROVIDER_NAME=\"$provider\"/" "$target_provider"
         else
             cat << 'EOF' > "$target_provider"
 # Provider configuration for custom provider

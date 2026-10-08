@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 AI CLI Helper - Per-Alias Codex Model Catalog Manager
-Generates and manages model catalogs for Codex CLI based on active provider/alias endpoints.
+Generates and manages model catalogs for Codex CLI based on active provider/alias endpoints and universal templates.
 """
 
 import sys
@@ -56,8 +56,18 @@ FALLBACK_TERRA_TEMPLATE = {
     "multi_agent_version": "v2"
 }
 
-def get_base_catalog() -> Dict[str, Dict[str, Any]]:
-    """Fetch base models catalog from codex binary or return fallback."""
+def get_base_catalog(template_file: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+    """Fetch base models catalog from template file, codex binary, or fallback."""
+    if template_file and os.path.exists(template_file):
+        try:
+            with open(template_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            models = {m["slug"]: m for m in data.get("models", []) if "slug" in m}
+            if models:
+                return models
+        except Exception:
+            pass
+
     try:
         res = subprocess.run(
             ["codex", "debug", "models"],
@@ -67,9 +77,12 @@ def get_base_catalog() -> Dict[str, Dict[str, Any]]:
         )
         if res.returncode == 0 and res.stdout.strip():
             data = json.loads(res.stdout)
-            return {m["slug"]: m for m in data.get("models", []) if "slug" in m}
+            models = {m["slug"]: m for m in data.get("models", []) if "slug" in m}
+            if models:
+                return models
     except Exception:
         pass
+
     return {"gpt-5.6-terra": FALLBACK_TERRA_TEMPLATE}
 
 def fetch_upstream_models(base_url: str, api_key: Optional[str] = None, timeout: int = 4) -> List[str]:
@@ -123,7 +136,6 @@ def filter_and_sort_models(raw_ids: List[str], default_model: Optional[str] = No
         is_gpt6 = ("gpt-6" in m)
         is_gpt5 = ("gpt-5" in m)
         is_grok = ("grok" in m)
-        # Priority rank: default (0), gpt-6 (1), gpt-5 (2), grok (3), others (4)
         rank = 4
         if is_default:
             rank = 0
@@ -144,28 +156,30 @@ def generate_catalog(
     output_path: str,
     default_model: Optional[str] = None,
     explicit_models: Optional[List[str]] = None,
+    template_file: Optional[str] = None,
     alias: Optional[str] = None,
     timeout: int = 4
 ) -> bool:
-    """Generate model catalog JSON and save to output_path."""
+    """Generate model catalog JSON and save to output_path using live API or template fallback."""
+    base_map = get_base_catalog(template_file)
+    model_ids = None
+
     if explicit_models:
         model_ids = explicit_models
-    else:
-        if not base_url:
-            print("[ERROR] Base URL is required to fetch models.", file=sys.stderr)
-            return False
+    elif base_url:
         try:
             raw_ids = fetch_upstream_models(base_url, api_key, timeout=timeout)
             model_ids = filter_and_sort_models(raw_ids, default_model)
         except Exception as e:
-            print(f"[WARN] Failed to fetch upstream models for alias '{alias or 'default'}': {e}", file=sys.stderr)
-            return False
+            print(f"[INFO] Upstream API models query skipped/unavailable ({e}). Falling back to template catalog.", file=sys.stderr)
 
+    # If no live models were discovered, fallback to models from base template
     if not model_ids:
-        print("[WARN] No compatible chat models discovered.", file=sys.stderr)
-        return False
+        model_ids = list(base_map.keys())
+        if default_model and default_model not in model_ids:
+            model_ids.insert(0, default_model)
+        model_ids = filter_and_sort_models(model_ids, default_model)
 
-    base_map = get_base_catalog()
     astra_proto = base_map.get("gpt-6-astra") or next(iter(base_map.values()))
     terra_proto = base_map.get("gpt-5.6-terra") or next(iter(base_map.values()))
 
@@ -235,6 +249,7 @@ def main():
     gen_parser.add_argument("--default-model", help="Default active model name")
     gen_parser.add_argument("--alias", help="Alias identifier (e.g. codexa)")
     gen_parser.add_argument("--models", help="Comma-separated manual list of models")
+    gen_parser.add_argument("--template-file", help="Universal catalog template JSON file")
     gen_parser.add_argument("--timeout", type=int, default=4, help="Fetch timeout in seconds")
 
     # List command
@@ -251,6 +266,7 @@ def main():
             output_path=args.output,
             default_model=args.default_model,
             explicit_models=explicit,
+            template_file=args.template_file,
             alias=args.alias,
             timeout=args.timeout
         )

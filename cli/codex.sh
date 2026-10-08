@@ -195,13 +195,15 @@ case "$1" in
         shift
         sub_action="$1"
         if [ "$sub_action" = "sync" ] || [ "$sub_action" = "refresh" ] || [ ! -f "$CATALOG_FILE" ]; then
-            if [ "$CURRENT_AUTH_MODE" = "apikey" ] && [ -n "$OPENAI_BASE_URL" ]; then
-                echo "[INFO] Syncing model catalog for '$TARGET_ALIAS' from $OPENAI_BASE_URL ..."
+            if [ "$CURRENT_AUTH_MODE" = "apikey" ] && { [ -n "$OPENAI_BASE_URL" ] || [ -n "$CODEX_MODELS" ]; }; then
+                echo "[INFO] Syncing model catalog for '$TARGET_ALIAS' from ${OPENAI_BASE_URL:-template} ..."
                 python3 "$AI_CONFIG_DIR/lib/catalog.py" generate \
-                    --base-url "$OPENAI_BASE_URL" \
+                    ${OPENAI_BASE_URL:+--base-url "$OPENAI_BASE_URL"} \
                     ${OPENAI_API_KEY:+--api-key "$OPENAI_API_KEY"} \
                     --output "$CATALOG_FILE" \
                     ${OPENAI_MODEL:+--default-model "$OPENAI_MODEL"} \
+                    ${CODEX_MODELS:+--models "$CODEX_MODELS"} \
+                    --template-file "$AI_CONFIG_DIR/templates/codex-models.template.json" \
                     --alias "$TARGET_ALIAS" 2>/dev/null || true
             fi
         fi
@@ -214,13 +216,15 @@ case "$1" in
         exit 0
         ;;
     sync-models|refresh-models)
-        if [ "$CURRENT_AUTH_MODE" = "apikey" ] && [ -n "$OPENAI_BASE_URL" ]; then
-            echo "[INFO] Syncing model catalog for '$TARGET_ALIAS' from $OPENAI_BASE_URL ..."
+        if [ "$CURRENT_AUTH_MODE" = "apikey" ] && { [ -n "$OPENAI_BASE_URL" ] || [ -n "$CODEX_MODELS" ]; }; then
+            echo "[INFO] Syncing model catalog for '$TARGET_ALIAS' from ${OPENAI_BASE_URL:-template} ..."
             python3 "$AI_CONFIG_DIR/lib/catalog.py" generate \
-                --base-url "$OPENAI_BASE_URL" \
+                ${OPENAI_BASE_URL:+--base-url "$OPENAI_BASE_URL"} \
                 ${OPENAI_API_KEY:+--api-key "$OPENAI_API_KEY"} \
                 --output "$CATALOG_FILE" \
                 ${OPENAI_MODEL:+--default-model "$OPENAI_MODEL"} \
+                ${CODEX_MODELS:+--models "$CODEX_MODELS"} \
+                --template-file "$AI_CONFIG_DIR/templates/codex-models.template.json" \
                 --alias "$TARGET_ALIAS"
             python3 "$AI_CONFIG_DIR/lib/catalog.py" list --catalog "$CATALOG_FILE"
         else
@@ -368,21 +372,24 @@ if [ "$CURRENT_AUTH_MODE" = "apikey" ]; then
     CATALOG_PATH=""
     if [ -f "$AI_CONFIG_DIR/templates/codex-${TARGET_ALIAS}-models.json" ]; then
         CATALOG_PATH="$AI_CONFIG_DIR/templates/codex-${TARGET_ALIAS}-models.json"
-    elif [[ "$OPENAI_MODEL" == grok-* ]] && [ -f "$AI_CONFIG_DIR/templates/codex-grok-models.json" ]; then
-        CATALOG_PATH="$AI_CONFIG_DIR/templates/codex-grok-models.json"
     elif [ -f "$CATALOG_FILE" ]; then
         CATALOG_PATH="$CATALOG_FILE"
-    elif [ -n "$OPENAI_BASE_URL" ]; then
-        # Auto-generate catalog on first launch if missing
+    elif [ -n "$OPENAI_BASE_URL" ] || [ -n "$CODEX_MODELS" ]; then
+        # Auto-generate catalog on first launch if missing using template blueprint
         if [ -f "$AI_CONFIG_DIR/lib/catalog.py" ]; then
             python3 "$AI_CONFIG_DIR/lib/catalog.py" generate \
-                --base-url "$OPENAI_BASE_URL" \
+                ${OPENAI_BASE_URL:+--base-url "$OPENAI_BASE_URL"} \
                 ${OPENAI_API_KEY:+--api-key "$OPENAI_API_KEY"} \
                 --output "$CATALOG_FILE" \
                 ${OPENAI_MODEL:+--default-model "$OPENAI_MODEL"} \
+                ${CODEX_MODELS:+--models "$CODEX_MODELS"} \
+                --template-file "$AI_CONFIG_DIR/templates/codex-models.template.json" \
                 --alias "$TARGET_ALIAS" \
                 --timeout 3 >/dev/null 2>&1 || true
             [ -f "$CATALOG_FILE" ] && CATALOG_PATH="$CATALOG_FILE"
+        fi
+        if [ -z "$CATALOG_PATH" ] && [ -f "$AI_CONFIG_DIR/templates/codex-models.template.json" ]; then
+            CATALOG_PATH="$AI_CONFIG_DIR/templates/codex-models.template.json"
         fi
     fi
 
