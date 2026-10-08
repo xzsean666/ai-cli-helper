@@ -15,7 +15,7 @@ SCRIPT_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
 # Ensure core scripts and executables have execution permissions
 chmod +x "$SCRIPT_DIR/ai" "$SCRIPT_DIR/install.sh" "$SCRIPT_DIR/env.sh" 2>/dev/null || true
 [ -d "$SCRIPT_DIR/cli" ] && chmod +x "$SCRIPT_DIR/cli/"*.sh 2>/dev/null || true
-[ -d "$SCRIPT_DIR/lib" ] && chmod +x "$SCRIPT_DIR/lib/"*.sh 2>/dev/null || true
+[ -d "$SCRIPT_DIR/lib" ] && chmod +x "$SCRIPT_DIR/lib/"*.sh "$SCRIPT_DIR/lib/"*.py 2>/dev/null || true
 
 echo "=== Installing / Updating AI CLI Helper ==="
 "$SCRIPT_DIR/ai" init "$@"

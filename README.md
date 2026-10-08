@@ -79,8 +79,14 @@ Codex 支持 **API Key 网关** 与 **ChatGPT OAuth 账号登录** 的混合模�
 - **完全私有隔离模式 (Isolated)**:
   设置 `AI_HOME_PROFILE="isolated"` 时，该别名运行在完全私有的独立环境中。
 
-#### 4. 辅助命令
+#### 4. 模型目录智能感知与专属 `/model` 菜单 (Per-Alias Model Catalog)
+- 每个别名（如 `codexa`, `codexb`）自动感知其 API 网关实际支持的完整模型列表（包括 `gpt-6-sol`, `gpt-6.1-sol`, `gpt-6-astra`, `gpt-5.6-terra` 等）。
+- 启动时自动注入专属模型目录 (`~/.local/share/ai/codex/catalogs/<alias>.json`)，在终端输入 `/model` 即可精准列出并切换该别名支持的所有模型，彻底解决 Codex 官方内置模型表缺失自定义网关模型的问题。
+
+#### 5. 辅助命令
 - `ai codex whoami` / `ai codex status` : 查看当前绑定的 ChatGPT 账号邮箱、API 状态、Profile 与数据共享模式
+- `ai codex models` : 查看当前别名已同步的可用模型列表
+- `ai codex sync-models` : 从上游网关重新拉取并更新可用模型目录
 - `ai codex login [--device-auth]` : 发起登录（支持设备码模式）
 - `ai codex logout` : 退出当前别名的登录并清除凭据
 - `ai reset codex` : 重置该别名的运行时环境（不影响共享的历史会话）

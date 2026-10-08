@@ -100,6 +100,8 @@ ${BOLD}CODEX (API KEY / CHATGPT OAUTH 混合模式):${NC}
      在 shared-team 模式下，各账号自动共享历史会话与 rollouts，任意账号均可 'codex resume' 续接！
   5. 辅助指令：
      ai codex whoami              # 查看当前绑定的 ChatGPT 账号或 API Key 状态
+     ai codex models              # 查看当前别名可用模型列表
+     ai codex sync-models         # 从后端网关同步更新可用模型目录
      ai codex logout              # 退出当前账号并清除凭据
      ai reset codex               # 重置该别名的运行时与凭据
 
@@ -147,7 +149,7 @@ init_config_dir() {
         cp "$SCRIPT_DIR/ai" "$AI_CONFIG_DIR/bin/ai" 2>/dev/null || true
         chmod +x "$AI_CONFIG_DIR/bin/ai"
         chmod +x "$AI_CONFIG_DIR/cli/"*.sh 2>/dev/null || true
-        chmod +x "$AI_CONFIG_DIR/lib/"*.sh 2>/dev/null || true
+        chmod +x "$AI_CONFIG_DIR/lib/"*.sh "$AI_CONFIG_DIR/lib/"*.py 2>/dev/null || true
     fi
 
     # Create secrets if missing

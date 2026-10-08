@@ -14,6 +14,9 @@ fi
 TARGET_ALIAS="${AI_ACTIVE_ALIAS:-${AI_ACTIVE_PROVIDER:-codex}}"
 ORIG_HOME="${AI_ORIGINAL_HOME:-$HOME}"
 AUTH_STORE_DIR="$ORIG_HOME/.local/share/ai/codex/auth/$TARGET_ALIAS"
+CATALOG_STORE_DIR="$ORIG_HOME/.local/share/ai/codex/catalogs"
+CATALOG_FILE="$CATALOG_STORE_DIR/$TARGET_ALIAS.json"
+AI_CONFIG_DIR="${AI_CONFIG_DIR:-$ORIG_HOME/.config/ai}"
 
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 RUNTIME_AUTH="$CODEX_HOME/auth.json"
@@ -22,6 +25,7 @@ STORED_EMAIL_FILE="$AUTH_STORE_DIR/email.txt"
 
 mkdir -p "$AUTH_STORE_DIR/run"
 mkdir -p "$CODEX_HOME"
+mkdir -p "$CATALOG_STORE_DIR"
 
 # Helper function to extract email from a Codex auth.json file
 get_codex_email() {
@@ -180,6 +184,47 @@ case "$1" in
             echo "Base URL:        ${OPENAI_BASE_URL:-(default / official)}"
             echo "Model:           ${OPENAI_MODEL:-(default)}"
             echo "Reasoning Effort:${OPENAI_REASONING_EFFORT:-(default)}"
+            if [ -f "$CATALOG_FILE" ]; then
+                local_count=$(python3 -c "import json; print(len(json.load(open('$CATALOG_FILE')).get('models', [])))" 2>/dev/null || echo "0")
+                echo "Model Catalog:   $CATALOG_FILE ($local_count models)"
+            fi
+        fi
+        exit 0
+        ;;
+    models)
+        shift
+        sub_action="$1"
+        if [ "$sub_action" = "sync" ] || [ "$sub_action" = "refresh" ] || [ ! -f "$CATALOG_FILE" ]; then
+            if [ "$CURRENT_AUTH_MODE" = "apikey" ] && [ -n "$OPENAI_BASE_URL" ]; then
+                echo "[INFO] Syncing model catalog for '$TARGET_ALIAS' from $OPENAI_BASE_URL ..."
+                python3 "$AI_CONFIG_DIR/lib/catalog.py" generate \
+                    --base-url "$OPENAI_BASE_URL" \
+                    ${OPENAI_API_KEY:+--api-key "$OPENAI_API_KEY"} \
+                    --output "$CATALOG_FILE" \
+                    ${OPENAI_MODEL:+--default-model "$OPENAI_MODEL"} \
+                    --alias "$TARGET_ALIAS" 2>/dev/null || true
+            fi
+        fi
+        if [ -f "$CATALOG_FILE" ]; then
+            python3 "$AI_CONFIG_DIR/lib/catalog.py" list --catalog "$CATALOG_FILE"
+        else
+            echo "[INFO] '$TARGET_ALIAS' is using the default built-in Codex models catalog."
+            echo "[INFO] Run 'ai $TARGET_ALIAS sync-models' to fetch and cache upstream models."
+        fi
+        exit 0
+        ;;
+    sync-models|refresh-models)
+        if [ "$CURRENT_AUTH_MODE" = "apikey" ] && [ -n "$OPENAI_BASE_URL" ]; then
+            echo "[INFO] Syncing model catalog for '$TARGET_ALIAS' from $OPENAI_BASE_URL ..."
+            python3 "$AI_CONFIG_DIR/lib/catalog.py" generate \
+                --base-url "$OPENAI_BASE_URL" \
+                ${OPENAI_API_KEY:+--api-key "$OPENAI_API_KEY"} \
+                --output "$CATALOG_FILE" \
+                ${OPENAI_MODEL:+--default-model "$OPENAI_MODEL"} \
+                --alias "$TARGET_ALIAS"
+            python3 "$AI_CONFIG_DIR/lib/catalog.py" list --catalog "$CATALOG_FILE"
+        else
+            echo "[INFO] '$TARGET_ALIAS' is in $CURRENT_AUTH_MODE mode. Official catalog is used."
         fi
         exit 0
         ;;
@@ -319,12 +364,30 @@ if [ "$CURRENT_AUTH_MODE" = "apikey" ]; then
         OPTS+=(-c "model_reasoning_effort=\"$OPENAI_REASONING_EFFORT\"")
     fi
 
-    # Load local metadata so custom Grok models work with /model and effort selection
-    if [[ "$OPENAI_MODEL" == grok-* ]]; then
-        grok_catalog="${AI_CONFIG_DIR:-$HOME/.config/ai}/templates/codex-grok-models.json"
-        if [ -f "$grok_catalog" ]; then
-            OPTS+=(-c "model_catalog_json=\"$grok_catalog\"")
+    # Resolve per-alias model catalog for /model menu and model capabilities
+    CATALOG_PATH=""
+    if [ -f "$AI_CONFIG_DIR/templates/codex-${TARGET_ALIAS}-models.json" ]; then
+        CATALOG_PATH="$AI_CONFIG_DIR/templates/codex-${TARGET_ALIAS}-models.json"
+    elif [[ "$OPENAI_MODEL" == grok-* ]] && [ -f "$AI_CONFIG_DIR/templates/codex-grok-models.json" ]; then
+        CATALOG_PATH="$AI_CONFIG_DIR/templates/codex-grok-models.json"
+    elif [ -f "$CATALOG_FILE" ]; then
+        CATALOG_PATH="$CATALOG_FILE"
+    elif [ -n "$OPENAI_BASE_URL" ]; then
+        # Auto-generate catalog on first launch if missing
+        if [ -f "$AI_CONFIG_DIR/lib/catalog.py" ]; then
+            python3 "$AI_CONFIG_DIR/lib/catalog.py" generate \
+                --base-url "$OPENAI_BASE_URL" \
+                ${OPENAI_API_KEY:+--api-key "$OPENAI_API_KEY"} \
+                --output "$CATALOG_FILE" \
+                ${OPENAI_MODEL:+--default-model "$OPENAI_MODEL"} \
+                --alias "$TARGET_ALIAS" \
+                --timeout 3 >/dev/null 2>&1 || true
+            [ -f "$CATALOG_FILE" ] && CATALOG_PATH="$CATALOG_FILE"
         fi
+    fi
+
+    if [ -n "$CATALOG_PATH" ]; then
+        OPTS+=(-c "model_catalog_json=\"$CATALOG_PATH\"")
     fi
 else
     # In ChatGPT OAuth mode, optionally pass model override if user explicitly set OPENAI_MODEL
@@ -341,7 +404,7 @@ for arg in "$@"; do
         --yolo|--ask-for-approval|--dangerously-bypass-approvals-and-sandbox|-a)
             has_approval_flag=true
             ;;
-        login|logout|doctor|resume|fork|archive|unarchive|delete|apply|exec|e|review|mcp|plugin|cloud)
+        login|logout|doctor|resume|fork|archive|unarchive|delete|apply|exec|e|review|mcp|plugin|cloud|models|sync-models|refresh-models)
             is_subcommand=true
             ;;
     esac
