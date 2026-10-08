@@ -164,12 +164,29 @@ sys.exit(1)
         warn "[!] No API key configured for current provider"
     fi
 
-    info "Checking CLI tools availability in PATH:"
+    info "Checking CLI tools availability and versions in PATH:"
     for tool in codex claude gemini aider qwen agy; do
         if command -v "$tool" >/dev/null 2>&1; then
-            success "  [✓] $tool is installed ($(command -v "$tool"))"
+            local ver=""
+            case "$tool" in
+                codex|claude|gemini|aider|agy)
+                    ver=$("$tool" --version 2>/dev/null | head -n 1)
+                    ;;
+            esac
+            if [ -n "$ver" ]; then
+                success "  [✓] $tool is installed (${ver}, path: $(command -v "$tool"))"
+            else
+                success "  [✓] $tool is installed ($(command -v "$tool"))"
+            fi
         else
             warn "  [!] $tool is not installed in PATH"
         fi
     done
+
+    echo ""
+    info "Upgrade commands cheat-sheet:"
+    echo "  • Update Codex CLI:    ai codex update (or ai <alias> update)"
+    echo "  • Update All AI CLIs:  ai update --all"
+    echo "  • Sync Model Catalog:  ai <alias> sync-models"
+    echo "  • Update Helper Repo:  ai update"
 }
