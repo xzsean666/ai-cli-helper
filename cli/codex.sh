@@ -194,29 +194,38 @@ case "$1" in
     models)
         shift
         sub_action="$1"
-        if [ "$sub_action" = "sync" ] || [ "$sub_action" = "refresh" ] || [ ! -f "$CATALOG_FILE" ]; then
-            if [ "$CURRENT_AUTH_MODE" = "apikey" ] && { [ -n "$OPENAI_BASE_URL" ] || [ -n "$CODEX_MODELS" ]; }; then
-                echo "[INFO] Syncing model catalog for '$TARGET_ALIAS' from ${OPENAI_BASE_URL:-template} ..."
-                python3 "$AI_CONFIG_DIR/lib/catalog.py" generate \
-                    ${OPENAI_BASE_URL:+--base-url "$OPENAI_BASE_URL"} \
-                    ${OPENAI_API_KEY:+--api-key "$OPENAI_API_KEY"} \
-                    --output "$CATALOG_FILE" \
-                    ${OPENAI_MODEL:+--default-model "$OPENAI_MODEL"} \
-                    ${CODEX_MODELS:+--models "$CODEX_MODELS"} \
-                    --template-file "$AI_CONFIG_DIR/templates/codex-models.template.json" \
-                    --alias "$TARGET_ALIAS" 2>/dev/null || true
+        if [ "$CURRENT_AUTH_MODE" = "apikey" ]; then
+            if [ "$sub_action" = "sync" ] || [ "$sub_action" = "refresh" ] || [ ! -f "$CATALOG_FILE" ]; then
+                if [ -n "$OPENAI_BASE_URL" ] || [ -n "$CODEX_MODELS" ]; then
+                    echo "[INFO] Syncing model catalog for '$TARGET_ALIAS' from ${OPENAI_BASE_URL:-template} ..."
+                    python3 "$AI_CONFIG_DIR/lib/catalog.py" generate \
+                        ${OPENAI_BASE_URL:+--base-url "$OPENAI_BASE_URL"} \
+                        ${OPENAI_API_KEY:+--api-key "$OPENAI_API_KEY"} \
+                        --output "$CATALOG_FILE" \
+                        ${OPENAI_MODEL:+--default-model "$OPENAI_MODEL"} \
+                        ${CODEX_MODELS:+--models "$CODEX_MODELS"} \
+                        --template-file "$AI_CONFIG_DIR/templates/codex-models.template.json" \
+                        --alias "$TARGET_ALIAS" 2>/dev/null || true
+                fi
             fi
-        fi
-        if [ -f "$CATALOG_FILE" ]; then
-            python3 "$AI_CONFIG_DIR/lib/catalog.py" list --catalog "$CATALOG_FILE"
+            if [ -f "$CATALOG_FILE" ]; then
+                python3 "$AI_CONFIG_DIR/lib/catalog.py" list --catalog "$CATALOG_FILE"
+            else
+                echo "[INFO] '$TARGET_ALIAS' is using the default built-in Codex models catalog."
+                echo "[INFO] Run 'ai $TARGET_ALIAS sync-models' to fetch and cache upstream models."
+            fi
         else
-            echo "[INFO] '$TARGET_ALIAS' is using the default built-in Codex models catalog."
-            echo "[INFO] Run 'ai $TARGET_ALIAS sync-models' to fetch and cache upstream models."
+            echo "[INFO] '$TARGET_ALIAS' is in ChatGPT OAuth mode. Official OpenAI models are active:"
+            template_path="$AI_CONFIG_DIR/templates/codex-models.template.json"
+            if [ -f "$template_path" ]; then
+                python3 "$AI_CONFIG_DIR/lib/catalog.py" list --catalog "$template_path"
+            fi
+            echo "[TIP] Inside Codex, type '/model' or press Ctrl+O to switch models."
         fi
         exit 0
         ;;
     sync-models|refresh-models)
-        if [ "$CURRENT_AUTH_MODE" = "apikey" ] && { [ -n "$OPENAI_BASE_URL" ] || [ -n "$CODEX_MODELS" ]; }; then
+        if [ "$CURRENT_AUTH_MODE" = "apikey" ]; then
             echo "[INFO] Syncing model catalog for '$TARGET_ALIAS' from ${OPENAI_BASE_URL:-template} ..."
             python3 "$AI_CONFIG_DIR/lib/catalog.py" generate \
                 ${OPENAI_BASE_URL:+--base-url "$OPENAI_BASE_URL"} \
@@ -228,7 +237,12 @@ case "$1" in
                 --alias "$TARGET_ALIAS"
             python3 "$AI_CONFIG_DIR/lib/catalog.py" list --catalog "$CATALOG_FILE"
         else
-            echo "[INFO] '$TARGET_ALIAS' is in $CURRENT_AUTH_MODE mode. Official catalog is used."
+            echo "[INFO] '$TARGET_ALIAS' is in ChatGPT OAuth mode. Official OpenAI models are active:"
+            template_path="$AI_CONFIG_DIR/templates/codex-models.template.json"
+            if [ -f "$template_path" ]; then
+                python3 "$AI_CONFIG_DIR/lib/catalog.py" list --catalog "$template_path"
+            fi
+            echo "[TIP] Inside Codex, type '/model' or press Ctrl+O to switch models."
         fi
         exit 0
         ;;
@@ -273,13 +287,16 @@ except Exception:
         echo "[INFO] Starting login flow for Codex alias '$TARGET_ALIAS'..."
         # If user is logging in with ChatGPT, clear previous apikey or tokens to avoid stale state
         rm -f "$RUNTIME_AUTH" "$STORED_AUTH" "$STORED_EMAIL_FILE"
-        CODEX_HOME="$CODEX_HOME" codex login "$@"
+        # Temporarily isolate OPENAI_BASE_URL and OPENAI_API_KEY so login connects to official OpenAI
+        OPENAI_BASE_URL="" OPENAI_API_KEY="" CODEX_HOME="$CODEX_HOME" codex login "$@"
         LOGIN_STATUS=$?
         if [ -s "$RUNTIME_AUTH" ]; then
             cp -f "$RUNTIME_AUTH" "$STORED_AUTH" 2>/dev/null || true
             chmod 600 "$STORED_AUTH" 2>/dev/null || true
             email=$(get_codex_email "$RUNTIME_AUTH")
             [ -n "$email" ] && echo "$email" > "$STORED_EMAIL_FILE" 2>/dev/null
+            echo "[SUCCESS] Successfully authenticated ChatGPT OAuth account: ${email:-authenticated} for '$TARGET_ALIAS'."
+            echo "[INFO] ChatGPT OAuth mode is now active. All official OpenAI models (GPT-6 Astra, GPT-6 Sol, GPT-5.6 Terra...) are ready."
         fi
         exit $LOGIN_STATUS
         ;;
@@ -398,14 +415,11 @@ if [ "$CURRENT_AUTH_MODE" = "apikey" ]; then
         OPTS+=(-c "model_reasoning_effort=\"$OPENAI_REASONING_EFFORT\"")
     fi
 
-    # Resolve per-alias model catalog for /model menu and model capabilities
+    # Automatically sync / refresh model catalog from upstream API on launch
     CATALOG_PATH=""
     if [ -f "$AI_CONFIG_DIR/templates/codex-${TARGET_ALIAS}-models.json" ]; then
         CATALOG_PATH="$AI_CONFIG_DIR/templates/codex-${TARGET_ALIAS}-models.json"
-    elif [ -f "$CATALOG_FILE" ]; then
-        CATALOG_PATH="$CATALOG_FILE"
     elif [ -n "$OPENAI_BASE_URL" ] || [ -n "$CODEX_MODELS" ]; then
-        # Auto-generate catalog on first launch if missing using template blueprint
         if [ -f "$AI_CONFIG_DIR/lib/catalog.py" ]; then
             python3 "$AI_CONFIG_DIR/lib/catalog.py" generate \
                 ${OPENAI_BASE_URL:+--base-url "$OPENAI_BASE_URL"} \
@@ -418,16 +432,24 @@ if [ "$CURRENT_AUTH_MODE" = "apikey" ]; then
                 --timeout 3 >/dev/null 2>&1 || true
             [ -f "$CATALOG_FILE" ] && CATALOG_PATH="$CATALOG_FILE"
         fi
-        if [ -z "$CATALOG_PATH" ] && [ -f "$AI_CONFIG_DIR/templates/codex-models.template.json" ]; then
+        if [ -z "$CATALOG_PATH" ] && [ -f "$CATALOG_FILE" ]; then
+            CATALOG_PATH="$CATALOG_FILE"
+        elif [ -z "$CATALOG_PATH" ] && [ -f "$AI_CONFIG_DIR/templates/codex-models.template.json" ]; then
             CATALOG_PATH="$AI_CONFIG_DIR/templates/codex-models.template.json"
         fi
+    elif [ -f "$CATALOG_FILE" ]; then
+        CATALOG_PATH="$CATALOG_FILE"
     fi
 
     if [ -n "$CATALOG_PATH" ]; then
         OPTS+=(-c "model_catalog_json=\"$CATALOG_PATH\"")
     fi
 else
-    # In ChatGPT OAuth mode, optionally pass model override if user explicitly set OPENAI_MODEL
+    # In ChatGPT OAuth mode:
+    # 1. Cleanly isolate environment so third-party keys/URLs don't pollute official connection
+    unset OPENAI_BASE_URL
+    unset OPENAI_API_KEY
+    # 2. Optionally pass model override if user explicitly set OPENAI_MODEL
     if [ -n "$OPENAI_MODEL" ]; then
         OPTS+=(-m "$OPENAI_MODEL")
     fi
