@@ -1,7 +1,7 @@
 # Provider configuration for codexb alias
 export AI_PROVIDER_NAME="codexb"
 
-export OPENAI_BASE_URL="https://sub2.yiyunweb.cloud/v1"
+export OPENAI_BASE_URL="https://a2neai.com/v1"
 export OPENAI_MODEL="gpt-5.6-terra"
 
 export ANTHROPIC_BASE_URL="https://sub2.yiyunweb.cloud"
