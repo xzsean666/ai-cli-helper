@@ -238,6 +238,36 @@ case "$1" in
         echo "[SUCCESS] Logged out from Codex alias '$TARGET_ALIAS'. Stored credentials removed."
         exit 0
         ;;
+    update|upgrade)
+        shift
+        echo "[INFO] Updating OpenAI Codex CLI to latest version..."
+        if command -v pnpm >/dev/null 2>&1; then
+            pnpm add -g @openai/codex@latest
+        elif command -v npm >/dev/null 2>&1; then
+            npm install -g @openai/codex@latest
+        elif command -v bun >/dev/null 2>&1; then
+            bun install -g @openai/codex@latest
+        fi
+        NEW_VER=$(codex --version 2>/dev/null || echo "unknown")
+        echo "[SUCCESS] OpenAI Codex updated to: $NEW_VER"
+        if [ -f "$CODEX_HOME/version.json" ]; then
+            python3 -c "
+import json
+fpath = '$CODEX_HOME/version.json'
+try:
+    with open(fpath, 'r') as f:
+        data = json.load(f)
+    latest = data.get('latest_version')
+    if latest:
+        data['dismissed_version'] = latest
+        with open(fpath, 'w') as f:
+            json.dump(data, f)
+except Exception:
+    pass
+" 2>/dev/null || true
+        fi
+        exit 0
+        ;;
     login)
         shift
         echo "[INFO] Starting login flow for Codex alias '$TARGET_ALIAS'..."
@@ -411,7 +441,7 @@ for arg in "$@"; do
         --yolo|--ask-for-approval|--dangerously-bypass-approvals-and-sandbox|-a)
             has_approval_flag=true
             ;;
-        login|logout|doctor|resume|fork|archive|unarchive|delete|apply|exec|e|review|mcp|plugin|cloud|models|sync-models|refresh-models)
+        login|logout|doctor|resume|fork|archive|unarchive|delete|apply|exec|e|review|mcp|plugin|cloud|models|sync-models|refresh-models|update|upgrade)
             is_subcommand=true
             ;;
     esac
@@ -423,6 +453,24 @@ if [ "$has_approval_flag" = false ] && [ "$is_subcommand" = false ] && [ "${CODE
 fi
 CODEX_ARGS+=("${OPTS[@]}")
 CODEX_ARGS+=("$@")
+
+# Pre-launch: dismiss any pending CLI self-update prompt to avoid blocking startup loop
+if [ -f "$CODEX_HOME/version.json" ]; then
+    python3 -c "
+import json
+fpath = '$CODEX_HOME/version.json'
+try:
+    with open(fpath, 'r') as f:
+        data = json.load(f)
+    latest = data.get('latest_version')
+    if latest and data.get('dismissed_version') != latest:
+        data['dismissed_version'] = latest
+        with open(fpath, 'w') as f:
+            json.dump(data, f)
+except Exception:
+    pass
+" 2>/dev/null || true
+fi
 
 # Launch Codex
 codex "${CODEX_ARGS[@]}"

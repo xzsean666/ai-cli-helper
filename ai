@@ -102,6 +102,7 @@ ${BOLD}CODEX (API KEY / CHATGPT OAUTH 混合模式):${NC}
      ai codex whoami              # 查看当前绑定的 ChatGPT 账号或 API Key 状态
      ai codex models              # 查看当前别名可用模型列表
      ai codex sync-models         # 从后端网关同步更新可用模型目录
+     ai codex update              # 更新底层 OpenAI Codex CLI 至最新版本
      ai codex logout              # 退出当前账号并清除凭据
      ai reset codex               # 重置该别名的运行时与凭据
 
@@ -211,6 +212,16 @@ update_repo() {
     else
         warn "Script directory is not a git repository. Cannot run git pull."
     fi
+
+    if [ "$1" = "--all" ] || [ "$1" = "--cli" ]; then
+        info "Updating globally installed AI CLI packages..."
+        if command -v pnpm >/dev/null 2>&1; then
+            pnpm add -g @openai/codex@latest @anthropic-ai/claude-code@latest 2>/dev/null || true
+        elif command -v npm >/dev/null 2>&1; then
+            npm install -g @openai/codex@latest @anthropic-ai/claude-code@latest 2>/dev/null || true
+        fi
+        success "AI CLI packages updated to latest versions."
+    fi
 }
 
 main() {
@@ -244,7 +255,7 @@ main() {
             run_doctor
             ;;
         update)
-            update_repo
+            update_repo "$@"
             ;;
         reset)
             reset_cli_home "$@"

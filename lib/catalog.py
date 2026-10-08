@@ -189,6 +189,7 @@ def generate_catalog(
             entry = dict(base_map[mid])
             entry["visibility"] = "hide" if mid.endswith("-review") else "list"
             entry["priority"] = idx + 1
+            entry["upgrade"] = None
         else:
             is_six = ("6" in mid or "astra" in mid)
             proto = astra_proto if is_six else terra_proto
@@ -198,6 +199,7 @@ def generate_catalog(
             entry["description"] = f"{mid} model via AI CLI Helper."
             entry["visibility"] = "hide" if mid.endswith("-review") else "list"
             entry["priority"] = idx + 1
+            entry["upgrade"] = None
         catalog_models.append(entry)
 
     # Ensure output directory exists

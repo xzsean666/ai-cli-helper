@@ -545,6 +545,55 @@ fi
 EOF
             chmod +x "$gh_shim" 2>/dev/null || true
         fi
+
+        # pnpm wrapper shim: 修复 Codex 等工具调用 `pnpm add -g @openai/codex` 未带 @latest 导致无法更新陷入死循环
+        local pnpm_shim="$cli_home/.local/bin/pnpm"
+        if [ ! -f "$pnpm_shim" ]; then
+            cat << 'EOF' > "$pnpm_shim"
+#!/usr/bin/env bash
+# Locate real pnpm binary outside of this shim
+REAL_PNPM=""
+for p in /root/.local/share/pnpm/bin/pnpm $(which -a pnpm 2>/dev/null); do
+    if [ -x "$p" ] && [ "$p" != "${BASH_SOURCE[0]}" ]; then
+        REAL_PNPM="$p"
+        break
+    fi
+done
+
+if [ -z "$REAL_PNPM" ]; then
+    REAL_PNPM="pnpm"
+fi
+
+ARGS=()
+has_add=false
+has_global=false
+for arg in "$@"; do
+    case "$arg" in
+        add|install|i)
+            has_add=true
+            ARGS+=("$arg")
+            ;;
+        -g|--global)
+            has_global=true
+            ARGS+=("$arg")
+            ;;
+        @openai/codex|@anthropic-ai/claude-code)
+            if [ "$has_add" = true ] && [ "$has_global" = true ]; then
+                ARGS+=("${arg}@latest")
+            else
+                ARGS+=("$arg")
+            fi
+            ;;
+        *)
+            ARGS+=("$arg")
+            ;;
+    esac
+done
+
+exec "$REAL_PNPM" "${ARGS[@]}"
+EOF
+            chmod +x "$pnpm_shim" 2>/dev/null || true
+        fi
         export PATH="$cli_home/.local/bin:$PATH"
     fi
 }
