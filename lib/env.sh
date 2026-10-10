@@ -350,92 +350,42 @@ if os.path.isfile(src_db) and os.path.isfile(dst_db):
     # 针对 codex，根据 data_mode 控制会话记录、历史与状态共享
     if [ "$base_cli" = "codex" ]; then
         local global_shared_codex="$AI_ORIGINAL_HOME/.local/share/ai/codex/shared-data"
-        mkdir -p "$global_shared_codex"/{rollouts,archived_rollouts,sessions}
+        mkdir -p "$global_shared_codex"/{rollouts,archived_rollouts,sessions,skills,thread-writer-locks,shell_snapshots}
 
         local target_pool_dir
         if [ "$data_mode" = "shared" ]; then
             target_pool_dir="$global_shared_codex"
         elif [ "$data_mode" = "group" ]; then
             target_pool_dir="$AI_ORIGINAL_HOME/.local/share/ai/codex/pools/${pool_name}"
-            mkdir -p "$target_pool_dir"/{rollouts,archived_rollouts,sessions}
+            mkdir -p "$target_pool_dir"/{rollouts,archived_rollouts,sessions,skills,thread-writer-locks,shell_snapshots}
         fi
 
         if [ "$data_mode" = "isolated" ]; then
             # === 完全私有隔离模式 (Isolated Mode) ===
-            for item in rollouts archived_rollouts sessions; do
+            for item in rollouts archived_rollouts sessions skills thread-writer-locks shell_snapshots; do
                 if [ -L "$CODEX_HOME/$item" ]; then
                     rm -f "$CODEX_HOME/$item"
                 fi
                 mkdir -p "$CODEX_HOME/$item"
             done
-            if [ -L "$CODEX_HOME/history.jsonl" ]; then
-                rm -f "$CODEX_HOME/history.jsonl"
-                touch "$CODEX_HOME/history.jsonl"
-            else
-                [ -f "$CODEX_HOME/history.jsonl" ] || touch "$CODEX_HOME/history.jsonl"
-            fi
+            for file_item in history.jsonl session_index.jsonl config.toml installation_id .sandbox_migration; do
+                if [ -L "$CODEX_HOME/$file_item" ]; then
+                    rm -f "$CODEX_HOME/$file_item"
+                    touch "$CODEX_HOME/$file_item"
+                else
+                    [ -f "$CODEX_HOME/$file_item" ] || touch "$CODEX_HOME/$file_item"
+                fi
+            done
             for db in "$CODEX_HOME"/*.sqlite; do
                 [ -L "$db" ] && rm -f "$db"
             done
         else
             # === 共享模式 (Shared 全局 shared-data 或 Group pools/<name>) ===
-            for item in rollouts archived_rollouts sessions; do
-                if [ -L "$CODEX_HOME/$item" ]; then
-                    local cur_link
-                    cur_link=$(readlink "$CODEX_HOME/$item" 2>/dev/null || true)
-                    if [ "$cur_link" != "$target_pool_dir/$item" ]; then
-                        rm -f "$CODEX_HOME/$item"
-                        ln -sfn "$target_pool_dir/$item" "$CODEX_HOME/$item" 2>/dev/null || true
-                    fi
-                elif [ -d "$CODEX_HOME/$item" ]; then
-                    cp -rn "$CODEX_HOME/$item/"* "$target_pool_dir/$item/" 2>/dev/null || true
-                    rm -rf "$CODEX_HOME/$item" 2>/dev/null
-                    ln -sfn "$target_pool_dir/$item" "$CODEX_HOME/$item" 2>/dev/null || true
-                else
-                    rm -f "$CODEX_HOME/$item" 2>/dev/null || true
-                    ln -sfn "$target_pool_dir/$item" "$CODEX_HOME/$item" 2>/dev/null || true
-                fi
-            done
-
-            # history.jsonl
-            [ -f "$target_pool_dir/history.jsonl" ] || touch "$target_pool_dir/history.jsonl"
-            if [ -L "$CODEX_HOME/history.jsonl" ]; then
-                local cur_h_link
-                cur_h_link=$(readlink "$CODEX_HOME/history.jsonl" 2>/dev/null || true)
-                if [ "$cur_h_link" != "$target_pool_dir/history.jsonl" ]; then
-                    rm -f "$CODEX_HOME/history.jsonl"
-                    ln -sf "$target_pool_dir/history.jsonl" "$CODEX_HOME/history.jsonl" 2>/dev/null || true
-                fi
-            elif [ -f "$CODEX_HOME/history.jsonl" ]; then
-                cat "$CODEX_HOME/history.jsonl" >> "$target_pool_dir/history.jsonl" 2>/dev/null || true
-                rm -f "$CODEX_HOME/history.jsonl" 2>/dev/null
-                ln -sf "$target_pool_dir/history.jsonl" "$CODEX_HOME/history.jsonl" 2>/dev/null || true
-            else
-                rm -f "$CODEX_HOME/history.jsonl" 2>/dev/null
-                ln -sf "$target_pool_dir/history.jsonl" "$CODEX_HOME/history.jsonl" 2>/dev/null || true
+            local sync_script="$AI_CONFIG_DIR/lib/codex_sync.py"
+            [ ! -f "$sync_script" ] && sync_script="$(dirname "${BASH_SOURCE[0]}")/codex_sync.py"
+            if [ -f "$sync_script" ]; then
+                python3 "$sync_script" "$target_pool_dir" "$CODEX_HOME"
             fi
-
-            # 跨 profile 共享 SQLite 状态与数据库 (state_*.sqlite, logs_*.sqlite, goals_*.sqlite, memories_*.sqlite, queue_*.sqlite, thread_history_*.sqlite)
-            for db_pattern in "state_*.sqlite" "logs_*.sqlite" "goals_*.sqlite" "memories_*.sqlite" "queue_*.sqlite" "thread_history_*.sqlite"; do
-                for pool_db in "$target_pool_dir"/$db_pattern; do
-                    [ -f "$pool_db" ] || continue
-                    local db_base
-                    db_base=$(basename "$pool_db")
-                    if [ ! -e "$CODEX_HOME/$db_base" ] || [ -L "$CODEX_HOME/$db_base" ]; then
-                        ln -sf "$pool_db" "$CODEX_HOME/$db_base" 2>/dev/null || true
-                    fi
-                done
-                for local_db in "$CODEX_HOME"/$db_pattern; do
-                    [ -f "$local_db" ] || continue
-                    [ -L "$local_db" ] && continue
-                    local db_base
-                    db_base=$(basename "$local_db")
-                    if [ ! -f "$target_pool_dir/$db_base" ]; then
-                        mv "$local_db" "$target_pool_dir/$db_base" 2>/dev/null || true
-                        ln -sf "$target_pool_dir/$db_base" "$CODEX_HOME/$db_base" 2>/dev/null || true
-                    fi
-                done
-            done
         fi
     fi
 

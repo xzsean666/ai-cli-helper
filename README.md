@@ -73,9 +73,9 @@ Codex 支持 **API Key 网关** 与 **ChatGPT OAuth 账号登录** 的混合模�
 - 每个别名拥有专属隔离的认证目录 (`~/.local/share/ai/codex/auth/<alias>/auth.json`) 与 `email.txt`。
 - 换号、退出或在多个终端并发运行不同账号与 API 网关完全互不干扰。
 
-#### 3. 会话历史与续接 (通过 AI_HOME_PROFILE)
+#### 3. 会话历史、工作空间与续接 (通过 AI_HOME_PROFILE)
 - **全局共享模式 (Shared, 默认推荐)**:
-  所有别名在 `shared-team` 下全局共享 `rollouts/`（会话记录与思维转储）、`history.jsonl`（交互历史）与 SQLite 状态数据库。任意别名（即使在 API 模式与 ChatGPT 模式之间切换）均可直接通过 `codex resume --last` 或 `codex resume <id>` 继续此前对话！
+  所有别名在 `shared-team` 下全局共享工作空间环境：包括 `rollouts/`（会话记录与思维转储）、`sessions/`、`session_index.jsonl`（会话索引与恢复列表）、`config.toml`（工作空间项目信任与偏好）、`skills/`（技能扩展）、`history.jsonl` 与 SQLite 状态数据库（`state_*.sqlite` 等）。任意别名（如 `codexa` 与 `codexb`，或在 API 模式与 ChatGPT 模式之间切换）均处在完全统一的工作空间，可直接通过 `codex resume`、`codex resume --last` 或会话选择器无缝继续此前的所有对话与工作成果！
 - **完全私有隔离模式 (Isolated)**:
   设置 `AI_HOME_PROFILE="isolated"` 时，该别名运行在完全私有的独立环境中。
 

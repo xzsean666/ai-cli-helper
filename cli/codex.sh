@@ -343,7 +343,7 @@ sync_codex_auth_back() {
         [ -n "$email" ] && echo "$email" > "$STORED_EMAIL_FILE" 2>/dev/null
     fi
 
-    # Sync any new SQLite databases back to shared pool
+    # Sync workspace state, sessions, index, and SQLite databases back to shared pool
     local raw_prof="${AI_HOME_PROFILE:-shared-team}"
     local prof_lower
     prof_lower=$(echo "$raw_prof" | tr '[:upper:]' '[:lower:]')
@@ -352,19 +352,10 @@ sync_codex_auth_back() {
         if [ "$prof_lower" != "shared" ] && [ "$prof_lower" != "shared-team" ] && [ "$prof_lower" != "common" ] && [ "$prof_lower" != "team" ]; then
             pool_dir="$ORIG_HOME/.local/share/ai/codex/pools/$raw_prof"
         fi
-        if [ -d "$pool_dir" ]; then
-            for db_pattern in "state_*.sqlite" "logs_*.sqlite" "goals_*.sqlite" "memories_*.sqlite" "queue_*.sqlite" "thread_history_*.sqlite"; do
-                for local_db in "$CODEX_HOME"/$db_pattern; do
-                    [ -f "$local_db" ] || continue
-                    [ -L "$local_db" ] && continue
-                    local db_base
-                    db_base=$(basename "$local_db")
-                    if [ ! -f "$pool_dir/$db_base" ]; then
-                        mv "$local_db" "$pool_dir/$db_base" 2>/dev/null || true
-                        ln -sf "$pool_dir/$db_base" "$CODEX_HOME/$db_base" 2>/dev/null || true
-                    fi
-                done
-            done
+        local sync_script="$AI_CONFIG_DIR/lib/codex_sync.py"
+        [ ! -f "$sync_script" ] && sync_script="$(dirname "${BASH_SOURCE[0]}")/../lib/codex_sync.py"
+        if [ -f "$sync_script" ]; then
+            python3 "$sync_script" "$pool_dir" "$CODEX_HOME"
         fi
     fi
 }
